@@ -3,20 +3,20 @@
 ## Source: https://github.com/hexojs/hexo/
 
 # Site
-title: 调试人生
+title: IdleTech
 #subtitle: 记录调试程序，调试生活，调试人生的点点滴滴
 #subtitle: 愿手握调试之剑，踏平代码世界的崎岖与坎坷！
 #subtitle: 不闻不若闻之，闻之不若见之，见之不若知之，知之不若行之，学至于行而止矣，行之，明也！
-subtitle: 慢下来，享受思考的小确幸
+subtitle: —— 慢下来，享受思考的小确幸。
 description: 记录工作，生活，学习的点点滴滴。
 author: Andy Guo
-email: xiao_0429@126.com
+email: xiao_0429@foxmail.com
 language: zh-CN
 timezone: Asia/Shanghai
 
 # URL
 ## If your site is put in a subdirectory, set url as 'http://yoursite.com/child' and root as '/child/'
-url: https://dbglife.github.io
+url: https://idletech.github.io
 root: /
 permalink: :year/:month/:day/:title.html
 permalink_defaults:
@@ -83,5 +83,5 @@ stylus:
 ## Docs: https://hexo.io/docs/deployment.html
 deploy:
   type: git
-  repository: https://github.com/dbglife/dbglife.github.io.git
+  repository: https://github.com/idletech/idletech.github.io.git
   branch: master
