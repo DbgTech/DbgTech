@@ -7,3 +7,4 @@ public/
 .deploy*/
 package.json
 node_modules/
+package-lock.json
