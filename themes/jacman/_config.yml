@@ -1,6 +1,7 @@
 ##### Menu
 menu:
   Home: /
+  Tools: /book_tools
   Archives: /archives
   About: /about
 ## you can create `tags` and `categories` folders in `../source`.

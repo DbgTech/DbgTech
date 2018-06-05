@@ -3,7 +3,7 @@
 ## Source: https://github.com/hexojs/hexo/
 
 # Site
-title: 闲科技
+title: DbgTech
 #subtitle: 记录调试程序，调试生活，调试人生的点点滴滴
 #subtitle: 愿手握调试之剑，踏平代码世界的崎岖与坎坷！
 #subtitle: 不闻不若闻之，闻之不若见之，见之不若知之，知之不若行之，学至于行而止矣，行之，明也！
@@ -16,7 +16,7 @@ timezone: Asia/Shanghai
 
 # URL
 ## If your site is put in a subdirectory, set url as 'http://yoursite.com/child' and root as '/child/'
-url: https://idletech.github.io
+url: https://dbgtech.github.io
 root: /
 permalink: :year/:month/:day/:title.html
 permalink_defaults:
@@ -29,7 +29,7 @@ archive_dir: archives
 category_dir: categories
 code_dir: downloads/code
 i18n_dir: :lang
-skip_render:
+skip_render: book*
 
 # Writing
 new_post_name: :year-:month-:day-:title.md # File name of new posts
@@ -83,5 +83,5 @@ stylus:
 ## Docs: https://hexo.io/docs/deployment.html
 deploy:
   type: git
-  repository: https://github.com/idletech/idletech.github.io.git
+  repository: https://github.com/dbgtech/dbgtech.github.io.git
   branch: master
