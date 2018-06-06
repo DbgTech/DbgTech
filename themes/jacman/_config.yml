@@ -1,7 +1,7 @@
 ##### Menu
 menu:
   Home: /
-  Tools: /book_tools
+  Column: /column
   Archives: /archives
   About: /about
 ## you can create `tags` and `categories` folders in `../source`.
@@ -14,6 +14,7 @@ menu:
 #### Widgets
 widgets: 
 ##- github-card
+- columns
 - category
 - tag
 - links
@@ -81,6 +82,10 @@ toc:
   aside: true     ## show contents in aside.
 ## you can set both of the value to true of neither of them.
 ## if you don't want display contents in a specified post,you can modify `front-matter` and add `toc: false`.
+
+#### Column
+columns:
+  专栏测试: https://dbgtech.github.io/GHPage/
 
 #### Links
 links:
