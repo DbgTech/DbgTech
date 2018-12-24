@@ -1,5 +1,13 @@
-
-# Ubuntu调试程序崩溃 #
+---
+title: Ubuntu调试程序崩溃
+date: 2018-12-09 20:15:33
+tags:
+- Ubuntu
+- gdb
+- 翻译
+categories:
+- 调试
+---
 
 在Ubuntu的官方的Wiki中给出了Ubuntu中的应用程序崩溃的调试方法，其网址为[https://wiki.ubuntu.com/DebuggingProgramCrash](https://wiki.ubuntu.com/DebuggingProgramCrash)。这里简单翻译一下该文档，作为今后查阅资料的参考。
 
@@ -12,7 +20,7 @@
 1. 栈回溯监视工具-Backtrace。
 2. 内存检查工具-Valgrind，如果程序崩溃时提示“段错误”或“总线错误”。
 3. 系统调用监视工具-Strace。
-
+<!--more-->
 ### 使用自动生成调试崩溃报告回溯程序`apport-retrace` ###
 
 如果你想要调试打包的Ubuntu软件的崩溃，`Apport`通常会抓住崩溃，在`/var/crash`目录创建一个`.crash`报告，并且报告用户程序已经崩溃。这是使用`apport-retrace`最简单的方式。
@@ -25,15 +33,21 @@
 
 你也可以从`Apport`崩溃通知中直接调用，点击`Examine locally`按钮就可以实现。
 
-![图1 Apport崩溃提醒](2018-12-06-Ubuntu-Debugging-Program-Crash-apport-examine-locally.png)
+<div align="center">
+![图1 Apport崩溃提醒](/img/2018-12-06-Ubuntu-Debugging-Program-Crash-apport-examine-locally.png)
+</div>
 
 点击后，程序会收集一些软件包的信息，然后询问你想要在什么模式下运行`apport-retrace`:
 
-![图2 选择Apport-retrace模式](2018-12-06-Ubuntu-Debugging-Program-Crash-apport-retrace-gui.png)
+<div align="center">
+![图2 选择Apport-retrace模式](/img/2018-12-06-Ubuntu-Debugging-Program-Crash-apport-retrace-gui.png)
+</div>
 
 通常保持第一个选项即可，这会在沙箱中启动中断并进入gdb。
 
-![图3 启动GDB](2018-12-06-Ubuntu-Debugging-Program-Crash-apport-retrace-gdb.png)
+<div align="center">
+![图3 启动GDB](/img/2018-12-06-Ubuntu-Debugging-Program-Crash-apport-retrace-gdb.png)
+</div>
 
 如果你不想交互式的gdb会话，但是仅仅想要使用完整的符号栈回溯更新`.crash`中已有的崩溃信息，那么就可以选择第三项。
 
@@ -213,6 +227,6 @@ EndSection
 
 5. 正常使用`apport-retrace`即可。
 
-更多关于处理bug报告`Apport`可以参考[Bugs/ApportRetraces](https://wiki.ubuntu.com/Bugs/ApportRetraces)。
+更多关于处理bug报告的`Apport`可以参考[Bugs/ApportRetraces](https://wiki.ubuntu.com/Bugs/ApportRetraces)。
 
 By Andy@2018-12-06 20:23:48
