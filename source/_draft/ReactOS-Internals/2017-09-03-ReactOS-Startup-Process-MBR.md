@@ -13,7 +13,7 @@ categories:
 系统加电自检后会将引导驱动器第一个扇区加载到0x7C00地址处，并且跳转到0x7C00开始执行，这就进入MBR（Main Boot Record）了。这里先给出一个Windows系统启动的早期过程的简图，图摘自《Windows内核设计思想》。
 
 <div align="center">
-![图1 Windows启动早期过程简图](/img/2017-09-03-ReactOS-Startup-Process-MBR-MBR2OSLOADER.jpg)
+![图1 Windows启动早期过程简图](2017-09-03-ReactOS-Startup-Process-MBR-MBR2OSLOADER.jpg)
 </div>
 
 MBR在安装操作系统时已经被填充了，包含代码和数据两部分；前半部分是启动引导代码，后半部分是一张磁盘分区表，记录了每个分区在磁盘上的位置，大小以及分区类型。在MBR的512字节中，446Bytes可用于代码存储，64Bytes用于磁盘分区（4个分区表，每项使用16Bytes），最后有2Byte的MBR签名，即固定的55 AA。在ReactOS系统（博主编译的版本中）中，其实这个MBR就是ISO安装文件中loader目录下的dosmbr.bin文件的内容。下面给出MBR的代码部分的汇编代码（Copy IDA反汇编，结合Bochs调试中的反汇编修改），这个代码在ReactOS中其实是对应源代码，以汇编代码给出。所在文件是`*\reactos\boot\freeldr\bootsect\dosmbr.asm`。
@@ -112,8 +112,8 @@ seg000:00D2                 dw  0000h		; segment
 seg000:00D4                 dd  00h, 00h, 00h, 00h	; 读取扇区起始号，大小超过4G了，要用8字节
 seg000:00D8                 dd  00h, 00h, 00h, 00h
 seg000:00DC ; ---------------------------------------------------------------------------
-seg000:00DC loc_DC:
-seg000:00DC                 mov     ax, [di+8] ; ds:di 0x1fe0:0x7dbe，即分区表第一项起始地址，已占用分区数
+seg000:00DC loc_DC:         ; ds:di 0x1fe0:0x7dbe，即分区表第一项起始地址，已占用分区数
+seg000:00DC                 mov     ax, [di+8]
 seg000:00DF loc_DF:
 seg000:00DF                 mov     ds:7CD4h, ax ; ds:7CD4h为DAP包中读取扇区号字段起始地址
 seg000:00E2 loc_E2:
@@ -127,7 +127,7 @@ seg000:00F0                 retn
 seg000:00F1 ; ---------------------------------------------------------------------------
 seg000:00F1	; INT 13 功能02H 读取扇区，不支持扩展时使用基本的读取扇区功能
 seg000:00F1 loc_F1:
-seg000:00F1                 mov     ax, 204h    ; AL=2 读取两个扇区
+seg000:00F1                 mov     ax, 204h    ; AL=4 读取四个扇区
 seg000:00F4                 mov     bx, 7C00h   ; ES:BX 为内存扇区的存放起始地址
 seg000:00F7                 mov     cx, [di+2]  ; CH=磁道号 CL=扇区号
 seg000:00FA loc_FA:
@@ -168,7 +168,7 @@ seg000:010D                 retn
 首先将段寄存器进行初始化设置，然后将将0x7C00处的512字节拷贝到1FE0:7C00内存处（即物理地址0x27A00处），跳转到拷贝的地址继续执行代码。拷贝的内存调试查看如下图所示。
 
 <div align="center">
-![图2 拷贝内容调试结果](/img/2017-09-03-ReactOS-Startup-Process-MBR-MOV-MBR.jpg)
+![图2 拷贝内容调试结果](2017-09-03-ReactOS-Startup-Process-MBR-MOV-MBR.jpg)
 </div>
 
 从四个分区数据中寻找活动分区，分区表项的定义数据结构如下所示，有起始与结束的磁道号，扇区号，柱面号等。分区表项的结构如下代码段所示，图3给出了文章中调试的ReactOS的活动分区的内容。
@@ -190,7 +190,7 @@ seg000:010D                 retn
 ```
 
 <div align="center">
-![图3 ReactOS活动分区表项内容](/img/2017-09-03-ReactOS-Startup-Process-MBR-Partion-Table.jpg)
+![图3 ReactOS活动分区表项内容](2017-09-03-ReactOS-Startup-Process-MBR-Partion-Table.jpg)
 </div>
 
 程序找到活动分区后，根据分区的信息读取活动扇区的前四个扇区，将磁盘内容到内存0x0000:0x7C00处。在读取磁盘时，判断是否支持INT 13H扩展功能；如果支持扩展则直接使用扩展功能中的42H号读磁盘功能读取磁盘，使用INT 13H扩展读取磁盘时，需要用到读取参数结构体DAP，其结构如下代码段所示；否则使用INT 13H传统的读取磁盘的方式。由于前面将物理内存0x7C00处的数据移动了另外的地方，读取磁盘时直接将磁盘中的四页数据（512B*4）读到了0x7C00地址处。读取完成后，要对第一个扇区的最后两个字节做MBR检验，通过校验确定是引导扇区则跳转到0x0000:0x7C00地址处执行。
@@ -212,7 +212,7 @@ typedef struct _DAP
 
 > 这里MBR读取的磁盘扇区是活动分区的第一个扇区，即0号扇区，并不是整个磁盘的0号扇区。由于安装的ReactOS系统使用FAT32文件格式，这个扇区保存的是FAT32引导扇区（FAT32 Boot Sector）。
 
-这里加载的内容即是DBR（Dos Boot Recort），或者也称作PBR（Partion Boot Record）。看一下加载到0x7C00处的数据，由于安装ReactOS时使用默认的FAT32文件格式进行的磁盘格式化，所以加载内核程序使用的就是ISO安装包中loader目录下的fat32.bin文件，它对应的源码位于`reactos\boot\freeldr\fat32.asm`文件中，如下给出该文件源代码，在代码中做注释。但是MBR加载的内容并非整个fat32.bin文件，而只有它的前半部分。
+这里加载的内容即是DBR（Dos Boot Recort），或者也称作PBR（Partion Boot Record），分区引导记录。看一下加载到0x7C00处的数据，由于安装ReactOS时使用默认的FAT32文件格式进行的磁盘格式化，所以加载内核程序使用的就是ISO安装包中loader目录下的fat32.bin文件，它对应的源码位于`reactos\boot\freeldr\fat32.asm`文件中，如下给出该文件源代码，在代码中做注释。但是MBR加载的内容并非整个fat32.bin文件，而只有它的前半部分。
 
 > 注意这个fat32.asm文件中有两个部分的内容，前一个扇区是FAT32的引导扇区的代码，位于引导磁盘0号磁头1号柱面1号扇区，剩下的一个部分并不是紧邻它的下一个扇区，而是14号扇区。即fat32.bin在安装操作系统时被劈成两半，一半为引导扇区，一半作为引导扇区扩展，位于14号扇区中。
 
@@ -340,7 +340,7 @@ ReadSectors:
         push es
         cmp  eax,DWORD [BiosCHSDriveSize]       ; BiosCHSDriveSize保存了扇区总数，检查是否超过限制
         jae  ReadSectorsLBA                     ; 支持LBA例程，则使用LBA方式读取磁盘
-                                                ; 之所以尽可能使用LBA方式读取，原因是LBA读取磁盘进行了优化
+                                                ; 之所以尽可能使用LBA方式读取，原因是LBA读磁盘进行了优化
                                                 ; 它可以实现一次读取多个扇区
         pushad                                  ; 保存要读取的逻辑扇区号和扇区数
 CheckInt13hExtensions:                          ; 检查是否支持 INT 13H扩展
@@ -503,13 +503,17 @@ BootSignature      dw 0aa55h          ; 0x1FE 结束标记
 其中引导程序代码在FAT32的DBR引导程序占用420字节，没有安排操作系统的分区这段程序没用，DBR结束标志与MBR，EBR结束标记相同，为“55 AA”。在ReactOS中，加载DBR时，一共加载了4个扇区，其中第二个扇区即这个FAT32文件系统安排的文件系统信息扇区，如图给出调试中看到的该扇区的起始与结尾处的字节内容。
 
 <div align="center">
-![图4 FAT32 文件系统信息扇区首尾内容](/img/2017-09-03-ReactOS-Startup-Process-MBR-FAT32-FileSystemInfo-Sector.jpg)
+![图4 FAT32 文件系统信息扇区首尾内容](2017-09-03-ReactOS-Startup-Process-MBR-FAT32-FileSystemInfo-Sector.jpg)
 </div>
+
+> 上面注释中多次提到隐藏扇区，其实隐藏扇区就是MBR占据的那部分（MBR只占据隐藏扇区的第一个），在分区前面。
+> |隐藏扇区| 保留扇区 | FAT表 | 根目录区 | 数据区 |
+  分区前 <-|->分区之后，也就是文件系统的起始部分
 
 这段DBR加载的扩展代码的内容就很容易预测了：从磁盘上找到内核Loader，然后加载到内容中，跳转到Loader继续执行。安装的ReactOS使用FAT32文件系统格式，FAT32的文件格式如下图所示。
 
 <div align="center">
-![图5 FAT32磁盘格式](/img/2017-09-03-ReactOS-Startup-Process-MBR-FAT32-Formats.jpg)
+![图5 FAT32磁盘格式](2017-09-03-ReactOS-Startup-Process-MBR-FAT32-Disk-Formats.jpg)
 </div>
 
 按照FAT32格式定位FAT表绝对位置可以按照如下的形式进行：

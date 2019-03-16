@@ -8,7 +8,7 @@ categories:
 - ReactOS
 ---
 
-前面简单介绍了一下ReactOS系统，且将它作为不了解ReactOS的朋友初步了解用吧！其实不用多说，想要了解Windows运行机制的，都知道这个项目。那这篇呢就简单说说ReactOS源代码下载；如何编译源代码成为可安装CD映像；如何安装ReactOS系统或安装过程中遇到的坑；最后说一下我认为的重中之重，如何用Windbg调试ReactOS的内核。废话少叙，马上开始！
+前面简单介绍了一下ReactOS系统，且将它作为不了解ReactOS的朋友初步了解用吧！其实不用多说，想要了解Windows运行机制的，都知道这个项目。那这篇就简单说说ReactOS源代码下载；如何编译源代码成为可安装CD映像；如何安装ReactOS系统或安装过程中遇到的坑；最后说一下我认为的重中之重，如何用Windbg调试ReactOS的内核。废话少叙，马上开始！
 
 ### 源码下载 ###
 
@@ -23,21 +23,23 @@ svn://svn.reactos.org/reactos
 <!-- more -->
 
 <div align="center">
-![图1 ReactOS源代码SVN仓库目录](/img/2017-06-16-ReactOS-Compile-and-run-in-vm-SVN-Directory.jpg)
+![图1 ReactOS源代码SVN仓库目录](2017-06-16-ReactOS-Compile-and-run-in-vm-SVN-Directory.jpg)
 </div>
 
 > 注：此处使用的代码分支为开发分支，也即不断被更新的代码分支。它是可能存在bug，不能保证稳定性；但是它可以保证你获得的都是ReactOS最新的代码。当然这里也可以获取已经发布的版本的代码，他们位于tags目录下。比如ReactOS官网上推荐的最新版本为0.4.5，在tags目录下可以发现ReactOS-0.4.5目录，它就是对应的源代码了。
+
+> 最新的发布版本已经到了 0.4.10，并且代码管理也搬到了github上，源码地址为：`https://github.com/reactos/reactos`。
 
 ### 编译 ###
 
 下载了ReactOS源代码之后，下一步就是编译它了，当然了ReactOS Wiki中对ReactOS系统的编译有明确说明。鉴于英语水平很渣，造成了其中的部分东西理解不了，需要亲自尝试，得出对的结论放到这个地方来（英语高手可以略过此部分内容，直接参考Wiki上的原汁原味内容）。
 
-ReactOS项目还是蛮贴心的啦！专门构建一个应用程序，将编译中用到的程序全部打包进来了，只需要下载编译环境包，并安装即可。ReactOS作为一个Windows兼容系统，ReactOS项目组具然提供了Linux平台上的编译环境包，吃一大惊啊！
+ReactOS项目还是蛮贴心！专门构建一个应用程序，将编译中用到的程序全部打包进来了，只需要下载编译环境包，并安装即可。ReactOS作为一个Windows兼容系统，ReactOS项目组也提供了Linux平台上的编译环境包！
 
 当然了，对于我这样一个Linux白痴来说，只能使用Windows上的编译环境包了，这里给出当前最新的Windows平台下的 [RosBE](http://sourceforge.net/projects/reactos/files/RosBE-Windows/i386/2.1.4/RosBE-2.1.4.exe/download)，点击即可下载。下载完毕后，直接安装即可（Windows上的安装够傻瓜，不需多说吧！）。安装过程中，会有一个界面让确定ReactOS源码的目录，默认被放到了C盘的用户目录了，如果前面已经下载了ReactOS，则修改一下这个源码目录，如图 2 所示（我的源码目录），这样在后面启动了编译命令行，直接就进入了源码目录了。
 
 <div align="center">
-![图2 RosBE源码目录](/img/2017-06-16-ReactOS-Compile-and-run-in-vm-RosBE-src-directory.jpg)
+![图2 RosBE源码目录](2017-06-16-ReactOS-Compile-and-run-in-vm-RosBE-src-directory.jpg)
 </div>
 
 安装完之后，在Windows的开始目录就可以找到编译环境了。这里就不给出具体的图了，朋友们自己安装完了，自己查看吧！输入help可以查看其中可以执行的命令。
@@ -55,7 +57,7 @@ ninja bootcd			// 生成系统安装CD映像
 
 从上述的编译环境生成过程中我们可以看到，默认的编译器是GNU编译器，即gcc等。那么它是不生成用于Windbg调试用的PDB文件的，怎么办呢？答案是研究ReactOS Wiki，它上面说是可以使用Windbg调试ReactOS系统的，那么一定有编译出PDB文件的方法啊，这样才能用Windbg进行调试！
 
-寻寻觅觅，寻寻觅觅，找到Wiki中的"[调试](https://reactos.org/wiki/Debugging)"一节，有Windbg小节的说明。说得倒是很明确：要完全利用Windbg的优势，需要用MSVC编译ReactOS得到PDB符号文件才可以。对于MSVC编译，这是默认的调试风格（笔者注：这句话不懂啥意思）。如果你想要使用gcc编译，需要用WINKD选项设置为TRUE（或者可以在配置后使用CMake-GUI设置，然后在重新配置，或者编辑options.cmake文件的默认值）（笔者注：云里雾里，不知道该怎么设置）。另外一种可用的方法是用WINKD=TRUE选项编译的ntoskrnl.exe和kdcom.dll替换掉默认编译的这两个文件。也可以用Windows 2003的kdcom.dll替换掉ReactOS的该文件。上述的最后一种方法用Windows 2003的kdcom.dll替换ReactOS的kdcom.dll文件，这种方式之前试过，也确实可以调试，但是问题还是很多的，关键没有pdb啊。又找到Wiki中"[Windbg的使用说明](https://reactos.org/wiki/WinDBG)"，依旧没有发现有效方法。再看ReactOS编译一节的内容吧，再次看到了"Optional: Set Up Visual Studio"，内容也比较简单，如果想要用VS编译ReactOS，需要获取支持的版本，VS2010或之后更新版本。要使用VS编译，打开合适的VS命令行提示程序，依照基于GCC构建ReactOS的方法即可（再之后的内容是可能碰到的问题，不再翻译了）。看到这里，恍了一大悟啊！直接用VS的编译环境编译即可！！！
+寻寻觅觅，寻寻觅觅，找到Wiki中的"[调试](https://reactos.org/wiki/Debugging)"一节，有Windbg小节的说明。说得倒是很明确：要完全利用Windbg的优势，需要用MSVC编译ReactOS得到PDB符号文件才可以。对于MSVC编译，这是默认的调试风格（注：这句话不懂啥意思）。如果你想要使用gcc编译，需要用WINKD选项设置为TRUE（或者可以在配置后使用CMake-GUI设置，然后在重新配置，或者编辑options.cmake文件的默认值）（注：云里雾里，不知道该怎么设置）。另外一种可用的方法是用WINKD=TRUE选项编译的ntoskrnl.exe和kdcom.dll替换掉默认编译的这两个文件。也可以用Windows 2003的kdcom.dll替换掉ReactOS的该文件。上述的最后一种方法用Windows 2003的kdcom.dll替换ReactOS的kdcom.dll文件，这种方式之前试过，也确实可以调试，但是问题还是很多的，关键没有pdb啊。又找到Wiki中"[Windbg的使用说明](https://reactos.org/wiki/WinDBG)"，依旧没有发现有效方法。再看ReactOS编译一节的内容吧，再次看到了"Optional: Set Up Visual Studio"，内容也比较简单，如果想要用VS编译ReactOS，需要获取支持的版本，VS2010或之后更新版本。要使用VS编译，打开合适的VS命令行提示程序，依照基于GCC构建ReactOS的方法即可（再之后的内容是可能碰到的问题，不再翻译了）。看到这里，恍了一大悟啊！直接用VS的编译环境编译即可！！！
 
 哎，说多了都是泪！英语好何至于如此？鼓捣了两次，每次都花了一整天时间！就是这么简单的指导，理解了分分钟搞定啊！虽然说看文章是可以这么搞，但是具体怎么样呢？还是要实践出真知啊！
 
@@ -65,7 +67,7 @@ ninja bootcd			// 生成系统安装CD映像
 
 搞完了上述的问题，就直接编译通过了，出现了我们要的bootcd.iso。
 
-略曲折啊！最主要的原因是比较笨T-T（让我悲伤十分钟）。如果有小伙伴用前面设置WINKD的方法搞出来了，请分享给我，让我好好学习一下。
+略曲折啊！最主要的原因是比较笨T-T（让我悲伤十分钟）。如果有小伙伴用前面设置WINKD的方法搞出来了，请分享给我，让我学习一下。
 
 ### 安装虚拟机中系统 ###
 
@@ -76,7 +78,7 @@ ninja bootcd			// 生成系统安装CD映像
 有了上面教训，于是乎就重新创建了一个XP系统，professional版本（其他的没试验）。安装过程就很顺利了，和Windows XP的安装非常类似，此处不再多说。给一个安装完之后的效果图，如图 3.
 
 <div align="center">
-![图3 ReactOS界面](/img/2017-06-16-ReactOS-Compile-and-run-in-vm-ReactOS-Face.jpg)
+![图3 ReactOS界面](2017-06-16-ReactOS-Compile-and-run-in-vm-ReactOS-Face.jpg)
 </div>
 
 ### 调试ReactOS的内核 ###
@@ -97,7 +99,7 @@ ninja bootcd			// 生成系统安装CD映像
 这样就应该没有什么问题了，可以直接调试ReactOS系统了。下面给出我最终调试ReactOS的一张图，见图4
 
 <div align="center">
-![图4 ReactOS调试系统调试图](/img/2017-06-16-ReactOS-Compile-and-run-in-vm-kernel-windbg-dbg.jpg)
+![图4 ReactOS调试系统调试图](2017-06-16-ReactOS-Compile-and-run-in-vm-kernel-windbg-dbg.jpg)
 </div>
 
 从图中可以看到nt模块的符号是私有符号，且路径指向了我们的编译路径中的msvc_pdb目录下的ntoskrnl.pdb，和Windows很像有木有！！！
