@@ -9,16 +9,16 @@ categories:
 - ReactOS
 ---
 
-上一篇总结了ReactOS系统的MBR以及DBR的执行逻辑，DBR最终解析FAT32文件系统，找到FreeLdr.sys文件并加载到0x0F80:0x0000内存位置。在DBR执行的结尾处，跳转到该地址处继续执行。这一篇分析一下FreeLdr.sys文件的执行。
+上一篇总结了ReactOS系统的MBR以及DBR的执行逻辑，DBR最终解析FAT32文件系统，找到FreeLdr.sys文件并加载到`0x0F80:0x0000`内存位置。在DBR执行的结尾处，跳转到该地址处继续执行。这一篇分析一下FreeLdr.sys文件的执行。
 
 文件FreeLdr.sys文件可以在安装完的ReactOS系统的系统盘中找到，或者在ReactOS的ISO安装包中位于loader目录下。这个文件和Windows系统的NTLDR非常像，它由Startup和OsLoader.exe两个文件拼接而成，其中OsLoader.exe是一个真正的PE文件。查看FreeLdr.sys文件十六进制形式（如图1所示）可以发现，文件虽然以`.sys`结尾，但该文件并非完整的PE文件，而是多个文件拼接而成。如图2所示，在FreeLdr.sys文件的0x0800偏移处为一个PE文件的起始。
 
 <div align="center">
-![图1 FreeLdr.sys十六进制](D:\github\dbglife-backup\source\_draft\2017-09-05-ReactOS-Startup-Process-Loader-FreeLdrSys-File-Hex.jpg)
+![图1 FreeLdr.sys十六进制](2017-09-05-ReactOS-Startup-Process-Loader-FreeLdrSys-File-Hex.jpg)
 </div>
 
 <div align="center">
-![图2 FreeLdr.sys十六进制PE部分](D:\github\dbglife-backup\source\_draft\2017-09-05-ReactOS-Startup-Process-Loader-FreeLdrSys-PEPartion.jpg)
+![图2 FreeLdr.sys十六进制PE部分](2017-09-05-ReactOS-Startup-Process-Loader-FreeLdrSys-PEPartion.jpg)
 </div>
 
 这里我们将FreeLdr.sys分成两部分来看，从DBR跳转到0x0F80:0x0000内存位置要执行的代码其实是图1中所示的二进制部分；另外一部分就是sys文件的0x0800偏移处的PE文件。前一部分对应于两个源码文件，分别是`*\reactos\boot\freeldr\freeldr\arch\realmode\fathelp.inc`和`*\reactos\boot\freeldr\freeldr\arch\realmode\i386.S`。先给出fathelp.inc的内容，它的代码如下所示。
@@ -260,9 +260,11 @@ rmode_idtptr:
 END
 ```
 
-有了前面的MBR等汇编代码分析，这里的代码阅读就简单多了。首先将所有的段寄存器全都清空了，然后设置了栈寄存器SP，将16位实模式的栈顶设置到了`0000:6F00`。调用EnableA20()函数开启A20地址线，下面给出开启A20地址线的代码。开启A20地址线的方法有很多，比如使用8042控制器，BIOS INT 15H等。有一些方法是不通用的，ReactOS这里使用的是8042键盘控制器。首先等待8042控制器的输入缓存为空（方法就是不断读取控制器64H端口数据，确定第二位是否为0）！输入缓存为空了，就向64H端口写入D1h，告诉控制器要向外写数据了！等到执行完毕（采取和前面相同方法等待），就可以向60H端口写DFh，开启A20，并等待命令执行完毕！
+有了前面的MBR等汇编代码分析，这里的代码阅读就简单多了。首先将所有的段寄存器全都清空了，然后设置了栈寄存器SP，将16位实模式的栈顶设置到了`0000:6F00`。
 
-无论是否开启A20地址线，80286及之后的CPU在实模式下可访问地址范围最大也是`FFFF:FFFFh`，即10FFEF，这由实模式的寻址结构决定！进入保护模式是否可以不开启A20地址线呢？答案是肯定的，但是由于A20地址线始终未0，则只能寻址1M，3M，5M等奇数的内存块，无法寻址整个地址空间！
+调用EnableA20()函数开启A20地址线，下面给出开启A20地址线的代码。开启A20地址线的方法有很多，比如使用8042控制器，BIOS INT 15H等。有一些方法是不通用的，ReactOS这里使用的是8042键盘控制器。首先等待8042控制器的输入缓存为空（方法就是不断读取控制器64H端口数据，确定第二位是否为0）！输入缓存为空了，就向64H端口写入D1h，告诉控制器要向外写数据了！等到执行完毕（采取和前面相同方法等待），就可以向60H端口写DFh，开启A20，并等待命令执行完毕！
+
+无论是否开启A20地址线，80286及之后的CPU在实模式下可访问地址范围最大也是`FFFF:FFFFh`，即`0x10FFEF`，这由实模式的寻址结构决定！进入保护模式是否可以不开启A20地址线呢？答案是肯定的，但是由于A20地址线始终为0，则只能寻址1M，3M，5M等奇数的内存块，无法寻址整个地址空间！
 
 ```
 Empty8042:
@@ -290,9 +292,9 @@ EnableA20:
 
 开启了A20地址线之后进行了如下几项工作：
 
-* 设置返回实模式的入口点`switch_to_real16`
-* 根据FreeLdr.sys中PE文件的位置，找到PE文件入口点，并设置到跳转指令中
-* 开启保护模式，跳转到PE入口点继续执行（这里需要关中断，保存实模式栈指针，加载GDT，然后开启CR0的PE位）
+* 设置返回实模式的入口点`switch_to_real16`。
+* 根据`FreeLdr.sys`中PE文件的位置，找到PE文件入口点，并设置到跳转指令中。
+* 开启保护模式，跳转到PE入口点继续执行（这里需要关中断，保存实模式栈指针，加载GDT，然后开启CR0的PE位）。
 
 ```
 #define BSS_START           HEX(6F00)
@@ -313,7 +315,7 @@ EnableA20:
 ![图4 进入保护模式代码段寄存器更新](2017-09-05-ReactOS-Startup-Process-Loader-Jump-Correct-CS.jpg)
 </div>
 
-最后通过一条跳转指令，对pm_entrypoint间接寻址到保存在其中的PE入口地址，从而跳转到PE文件的入口处继续执行，如图5所示。
+最后通过一条跳转指令，对`pm_entrypoint`间接寻址找到保存在其中的PE入口地址，从而跳转到PE文件的入口处继续执行，如图5所示。
 
 <div align="center">
 ![图5 跳转到FreeLdr.sys中PE部分入口](2017-09-05-ReactOS-Startup-Process-Loader-Jump-FreeLdr-PE-Entry.jpg)
@@ -420,11 +422,11 @@ END
 
 总结一下到目前计算机执行的过程：
 
-* MBR被BIOS加载到0x7C00地址处，并跳转过去执行
-* MBR根据分区表，找到活动分区，加载DBR并跳转到DBR执行
-* DBR以及DBR扩展代码解析FAT32文件系统，加载FreeLdr.sys文件，并跳转加载地址执行
-* FreeLdr.sys前半部分开启A20地址线，加载GDT，进入保护模式，加载IDT，初始化IDT表
-* 跳转到FreeLdr.sys的BootMain()函数执行
+* MBR被BIOS加载到0x7C00地址处，并跳转过去执行。
+* MBR根据分区表，找到活动分区，加载DBR并跳转到DBR执行。
+* DBR以及DBR扩展代码解析FAT32文件系统，加载FreeLdr.sys文件，并跳转加载地址执行。
+* FreeLdr.sys前半部分开启A20地址线，加载GDT，进入保护模式，加载IDT，初始化IDT表。
+* 跳转到FreeLdr.sys的BootMain()函数执行。
 
 从上述过程可以发现，进入了保护模式，但是未开启分页；加载GDT/IDT，可以进行中断响应，但是从中断表的初始化可知可响应中断或异常非常少；后期还有大量初始化工作需要完成。由于内容繁多，后文分主题进行总结。这里的主题分割没有固定模式，以启动流程为主线，逐一学习流程，简单话题一带而过，大话题则单劈小节专门总结，主题划分如下所示。
 
@@ -644,11 +646,11 @@ BOOLEAN MmInitializeMemoryManager(VOID)
 }
 ```
 
-函数首先校验FreeLdr.sys这个二进制文件是否是完整的PE文件，这里就是简单对PE文件头及大小的验证，不再详述；调用架构初始化时设置的CPU架构相关的一些底层函数中的GetMemoryMap函数指针，它实际对应于PcMemGetMemoryMap()函数，在下面给出这个函数的代码。
+函数首先校验`FreeLdr.sys`这个二进制文件是否是完整的PE文件，这里就是简单对PE文件头及大小的验证，不再详述；调用架构初始化时设置的CPU架构相关的一些底层函数中的GetMemoryMap函数指针，它实际对应于PcMemGetMemoryMap()函数，在下面给出这个函数的代码。
 
-从PcMemGetMemoryMap()函数名字可以猜测此函数是获取物理内存的映射，它首先调用了PcMemGetBiosMemoryMap()获取了BIOS内存映射，该函数最重要的部分就是调用BIOS INT 15H E820H功能获取内存映射状态。从代码中可以看到，它准备了INT 15H E820H的参数，然后调用了Int386()函数（Int386()函数涉及到从保护模式切换回实模式调用BIOS功能，再从实模式切换回保护模式，这个在小节后面单拿出来分析一下这个过程）。
+从`PcMemGetMemoryMap()`函数名字可以猜测此函数是获取物理内存的映射，它首先调用了`PcMemGetBiosMemoryMap()`获取了BIOS内存映射，该函数最重要的部分就是调用`BIOS INT 15H E820H`功能获取内存映射状态。从代码中可以看到，它准备了INT 15H E820H的参数，然后调用了`Int386()`函数（Int386()函数涉及到从保护模式切换回实模式调用BIOS功能，再从实模式切换回保护模式，这个在小节后面单拿出来分析一下这个过程）。
 
-Int386()函数功能和实模式下调用INT 15H E820H相同，循环调用直到没有空闲内存为止。将获取的内存信息，根据内存状态设置不同的描述符类型，然后将描述符填写到PcMemoryMap内存映射信息表中。函数AddMemoryDescriptor()完成了内存信息描述符插入列表的操作，纯数据操作相对简单不再详述。有一点需要注意的是PcMemoryMap列表是一个数组，从第一项到最后一项（没有更多内存信息，则将最后一项置空）依次保存了从低地址到高地址的空闲内存内存段；对于调用BIOS功能获取的内存信息，有一些地址空间是相邻的，但是可能通过两次调用获取，这时候在插入描述块时就需要将描述块合并。
+`Int386()`函数功能和实模式下调用`INT 15H E820H`相同，循环调用直到没有空闲内存为止。将获取的内存信息，根据内存状态设置不同的描述符类型，然后将描述符填写到PcMemoryMap内存映射信息表中。函数AddMemoryDescriptor()完成了内存信息描述符插入列表的操作，纯数据操作相对简单不再详述。有一点需要注意的是PcMemoryMap列表是一个数组，从第一项到最后一项（没有更多内存信息，则将最后一项置空）依次保存了从低地址到高地址的空闲内存内存段；对于调用BIOS功能获取的内存信息，有一些地址空间是相邻的，但是可能通过两次调用获取，这时候在插入描述块时就需要将描述块合并。
 
 ```
 static ULONG PcMemGetBiosMemoryMap(PFREELDR_MEMORY_DESCRIPTOR MemoryMap, ULONG MaxMemoryMapSize)
@@ -879,11 +881,11 @@ PFREELDR_MEMORY_DESCRIPTOR PcMemGetMemoryMap(ULONG *MemoryMapSize)
 }
 ```
 
-如果通过BIOS的INT 15H获取内存信息失败，则换其他方法尝试，包括INT 12H，INT 15H E801H，INT 15H C1H等获取内存信息，这个和通过INT 15H E820H获取内存类似。
+如果通过BIOS的`INT 15H`获取内存信息失败，则换其他方法尝试，包括`INT 12H`，`INT 15H E801H`，`INT 15H C1H`等获取内存信息，这个和通过INT 15H E820H获取内存类似。
 
 在获取了系统的空闲内存之后，设置一些固定的地址范围的固定类型，用于特殊用途，如实模式的中断表IVT，BIOS Data Area，视频内存，ROM，和一些无法使用的内存区间。再者要为FreeLdr.sys保存静态的内容块，包括0x7C00占用段，使用的栈段，以及FreeLdr.sys的PE文件占用的内存。从保留的内存看，低4K内存留给了IVT和BIOS Data Area；0x1000~0x6000之间保留给BIOS，0x6000~0x7000分两部分，一部分给16位程序用作栈空间，另一部分用作全局变量，BSS段；0x7000~0xF000留给FreeLdr.sys的栈段，其中0x7C00开始的几个页面保存了DBR等数据；0xF800~FreeLdrEnd保留给FreeLdr.sys使用，这就基本是目前使用的所有内存空间。最后再FreeLdr.sys映像之上找一块空闲内存（最小64K），保留下来用于磁盘读取缓存；再有就是保留给显卡的缓存和ROM，以及不可用内存段，详细地址值可以参考代码。
 
-从函数PcMemGetMemoryMap()返回的内存信息表BiosMemoryMap中，一方面包含了系统可用的空闲内存信息，另一方面将现有使用的物理内存标注了特殊标记。继续内存管理器初始化函数的逻辑，紧接着调用MmGetAddressablePageCountIncludingHoles()获取内存页的数量（其中包含了内存空洞），它的代码如下。代码很简单，遍历上面获取的BiosMemoryMap表内容，根据其中内存块状态设置最大，最小可用物理页号，最后根据两个值获取可用的物理页号数。
+从函数PcMemGetMemoryMap()返回的内存信息表BiosMemoryMap中，一方面包含了系统可用的空闲内存信息，另一方面将现有使用的物理内存标注了特殊标记。继续内存管理器初始化函数的逻辑，紧接着调用`MmGetAddressablePageCountIncludingHoles()`获取内存页的数量（其中包含了内存空洞），它的代码如下。代码很简单，遍历上面获取的BiosMemoryMap表内容，根据其中内存块状态设置最大，最小可用物理页号，最后根据两个值获取可用的物理页号数。
 
 ```
 PFN_NUMBER MmGetAddressablePageCountIncludingHoles(VOID)
