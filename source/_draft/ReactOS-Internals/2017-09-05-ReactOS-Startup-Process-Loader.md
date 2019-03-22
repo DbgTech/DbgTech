@@ -617,8 +617,9 @@ BOOLEAN MmInitializeMemoryManager(VOID)
             MmGetSystemMemoryMapTypeString(MemoryDescriptor->MemoryType));
     }
 #endif
-    // Find address for the page lookup table
+    // Find address for the page lookup table 获取包含空洞的地址空间中的页框数（空洞不可用）
     TotalPagesInLookupTable = MmGetAddressablePageCountIncludingHoles();
+    // 查找能够放下页框查找表的内存位置
     PageLookupTableAddress = MmFindLocationForPageLookupTable(TotalPagesInLookupTable);
     LastFreePageHint = MmHighestPhysicalPage;
 
@@ -631,15 +632,15 @@ BOOLEAN MmInitializeMemoryManager(VOID)
         return FALSE;
     }
 
-    // Initialize the page lookup table
+    // Initialize the page lookup table 初始化页框查找表
     MmInitPageLookupTable(PageLookupTableAddress, TotalPagesInLookupTable);
-
+	// 更新最后可用的空闲页 全局变量
     MmUpdateLastFreePageHint(PageLookupTableAddress, TotalPagesInLookupTable);
-
+	// 查找查找表中可用的空闲页框数
     FreePagesInLookupTable = MmCountFreePagesInLookupTable(PageLookupTableAddress,
                                                         TotalPagesInLookupTable);
 
-    MmInitializeHeap(PageLookupTableAddress);
+    MmInitializeHeap(PageLookupTableAddress); // 初始化加载其中的两个堆，加载堆和临时堆
     TRACE("Memory Manager initialized. 0x%x pages available.\n", FreePagesInLookupTable);
 
     return TRUE;
@@ -918,7 +919,7 @@ PFN_NUMBER MmGetAddressablePageCountIncludingHoles(VOID)
 }
 ```
 
-调用MmFindLocationForPageLookupTable()函数构建可用物理内存查询表，即在操作系统分配物理内存时查询的表。通过源码发现，在寻找位置存放物理页面查找表时，一方面尽可能让表的地址处于高地址，另一方面放到可用内存块的尾部（例如一块1G物理内存，则放到这1G物理内存尾部）。
+调用`MmFindLocationForPageLookupTable()`函数构建可用物理内存查询表，即在操作系统分配物理内存时查询的表。通过源码发现，在寻找位置存放物理页面查找表时，一方面尽可能让表的地址处于高地址，另一方面放到可用内存块的尾部（例如一块1G物理内存，则放到这1G物理内存尾部）。
 
 ```
 PVOID MmFindLocationForPageLookupTable(PFN_NUMBER TotalPageCount)
@@ -1016,9 +1017,9 @@ VOID MmInitPageLookupTable(PVOID PageLookupTable, PFN_NUMBER TotalPageCount)
 }
 ```
 
-MmUpdateLastFreePageHint()函数工作比较简单，遍历物理页面查找表找到最大空闲页号。MmCountFreePagesInLookupTable()函数则计算了物理页面查找表中空闲页面的数量，逻辑都比较简单，不再列举源码。
+`MmUpdateLastFreePageHint()`函数工作比较简单，遍历物理页面查找表找到最大空闲页号。`MmCountFreePagesInLookupTable()`函数则计算了物理页面查找表中空闲页面的数量，逻辑都比较简单，不再列举源码。
 
-MmInitializeHeap()函数用于初始化加载器中使用的两个堆，代码如下所示。调用FrLdrHeapCreate()创建堆，该函数分配物理地址，然后初始化堆数据结构，返回堆指针。堆相关的内容也非常复杂，其数据结构以及相关算法在以后详细分析，这里不再过多解析。
+`MmInitializeHeap()`函数用于初始化加载器中使用的两个堆，代码如下所示。调用FrLdrHeapCreate()创建堆，该函数分配物理地址，然后初始化堆数据结构，返回堆指针。堆相关的内容也非常复杂，其数据结构以及相关算法在以后详细分析，这里不再过多解析。
 
 ```
 VOID MmInitializeHeap(PVOID PageLookupTable)
@@ -1045,7 +1046,7 @@ VOID MmInitializeHeap(PVOID PageLookupTable)
 * 设置全局辅助变量，如最大空闲页提示量，查找表页面总数量，查找表中空闲页面数量等
 * 最后分配两个堆，用于加载器分配内存
 
-最后分析一下32位的Int386()函数的执行过程，这个函数中是调用BIOS功能，它涉及到从保护模式到实模式，再由实模式到保护模式的切换。从代码可以看到，这个函数被编译为32位代码，所以这里的汇编和C语言编译出来代码没啥区别，就是函数间调用。
+最后分析一下32位的Int386()函数的执行过程，这个函数中是调用BIOS功能，它涉及到从保护模式到实模式，再由实模式到保护模式的切换。汇编代码位于`*\boot\freeldr\freeldr\arch\i386\int386.S`文件中，从代码可以看到，这个函数被编译为32位代码，所以这里的汇编和C语言编译出来代码没啥区别，就是函数间调用。
 
 ```
 .code32
@@ -1186,7 +1187,7 @@ callback_table:
     .word BootLinuxKernel
 ```
 
-实模式下的Int386()主要完成了INT X操作，本次中即INT 15H操作，参数从`BSS_*`段获取（从保护模式中已经复制），调用完本函数后，对应的结果被回存到`BSS_*`对应的结构体的寄存器成员中。由于对`Int386()`函数是调用而非跳转，所以会返回调用点继续执行，接下来进入到`exit_to_protected`代码块，这个代码块是第一次进入保护模式时执行过的代码，这样就再一次进入保护模式了，当加载完IDT后，之后的间接跳转指令中保存目标地址的变量`ContinueAddress`被修改为了32位Int386()函数中的一块地址`Int386_return`，对`INT 15H`的结果从`BSS_RegisterSet`地址处进行复制后，则32位的`Int386()`返回继续执行。
+实模式下的`Int386()`主要完成了`INT X`操作，此次分析的即INT 15H操作，参数从`BSS_*`段获取（从保护模式中已经复制），调用完本函数后，对应的结果被回存到`BSS_*`对应的结构体的寄存器成员中。由于对`Int386()`函数是调用而非跳转，所以会返回调用点继续执行，接下来进入到`exit_to_protected`代码块，这个代码块是第一次进入保护模式时执行过的代码，这样就再一次进入保护模式了，当加载完IDT后，之后的间接跳转指令中保存目标地址的变量`ContinueAddress`被修改为了32位Int386()函数中的一块地址`Int386_return`，对`INT 15H`的结果从`BSS_RegisterSet`地址处进行复制后，则32位的`Int386()`返回继续执行。
 
 这样就完成了从保护模式调用实模式的函数，并切回到保护模式下继续执行。
 
@@ -1305,7 +1306,7 @@ Reboot:
 }
 ```
 
-函数MachInitializeBootDevices其实是一个宏定义，它对应于`MachVtbl.InitializeBootDevices()`函数指针，而函数指针指向的是PcInitializeBootDevices()函数，该函数作用为调用BIOS读取磁盘功能，确定有多少个可见的磁盘，并且确实存在的磁盘，同时将磁盘中可以作为引导设备的加入到引导设备列表中。
+函数`MachInitializeBootDevices`其实是一个宏定义，它对应于`MachVtbl.InitializeBootDevices()`函数指针，而函数指针指向的是`PcInitializeBootDevices()`函数，该函数作用为调用BIOS读取磁盘功能，确定有多少个可见的磁盘，并且确实存在的磁盘，同时将磁盘中可以作为引导设备的加入到引导设备列表中。
 
 在之后的代码中有一个条件编译，`_M_IX86`变量定义了，要加载额外的SCSI驱动，编译中并没有这个标记，这里暂不去理会对SCSI驱动的加载。
 
@@ -1382,9 +1383,9 @@ BOOLEAN IniFileInitialize(VOID)
 }
 ```
 
-IniOpenIniFile()用于打开文件，返回文件ID号。它首先调用MachDiskGetBootPath()（实际调用DiskGetBootPath()函数）函数获取引导分区的ARC路径（multi(0)disk(0)rdisk(0)partition(*)），因为FreeLdr.ini被写入了引导磁盘上，因此用ARC引导分区路径加上文件名组成ini路径。最后调用ArcOpen()打开ini文件。关于Arc文件操作的内容在另外一篇文章中简单补充一下。
+`IniOpenIniFile()`用于打开文件，返回文件ID号。它首先调用`MachDiskGetBootPath()`（实际调用`DiskGetBootPath()`函数）函数获取引导分区的ARC路径（`multi(0)disk(0)rdisk(0)partition(*)`），因为`FreeLdr.ini`被写入了引导磁盘上，因此用ARC引导分区路径加上文件名组成ini路径。最后调用ArcOpen()打开ini文件。关于Arc文件操作的内容在另外一篇文章中简单补充一下。
 
-IniFileInitialize()函数的内容就比较简单了，分配缓存，读取ini文件，解析ini文件，清理资源返回即完成操作。IniParseFile()函数就是解析ini文件（INI文件的内容如下给出一个例子），将其中的项目保存到IniFileSectionListHead列表中。
+`IniFileInitialize()`函数的内容就比较简单了，分配缓存，读取ini文件，解析ini文件，清理资源返回即完成操作。`IniParseFile()`函数就是解析ini文件（INI文件的内容如下给出一个例子），将其中的项目保存到`IniFileSectionListHead`列表中。
 
 ```
 [FREELOADER]
@@ -1457,7 +1458,7 @@ SystemPath=multi(0)disk(0)rdisk(0)partition(1)\ReactOS
 Options=/DEBUG /DEBUGPORT=COM1 /BAUDRATE=115200 /SOS /redirect=com2 /redirectbaudrate=115200
 ```
 
-读取ini文件之后调用DebugInit()函数，初始化调试器。DebugInit()函数源代码如下所示。MainInit参数为TRUE，表示是“主”初始化部分。
+读取ini文件之后调用`DebugInit()`函数，初始化调试器。`DebugInit()`函数源代码如下所示。MainInit参数为TRUE，表示是“主”初始化部分。
 
 ```
 VOID DebugInit(BOOLEAN MainInit)
@@ -1582,9 +1583,9 @@ Done:
 }
 ```
 
-根据传参可以确定这里函数中逻辑的执行顺序，主初始化阶段则读取FreeLdr的INI配置文件中的Debug区段，获取其中设置的端口，波特率等参数，最后调用Rs232PortInitialize()函数初始化COM端口（COM端口的初始化这里不做过多分析了，以后总结调试系统时再单独拿出来分析一下）。
+根据传参可以确定这里函数中逻辑的执行顺序，主初始化阶段则读取FreeLdr的INI配置文件中的Debug区段，获取其中设置的端口，波特率等参数，最后调用`Rs232PortInitialize()`函数初始化COM端口（COM端口的初始化这里不做过多分析了，以后总结调试系统时再单独拿出来分析一下）。
 
-之后调用IniOpenSection()函数，读取FreeLoader区段的Timeout参数。接下来就是调用UiInitialize()进行UI的主初始化阶段了。这里也将代码在下面给出。
+之后调用`IniOpenSection()`函数，读取`FreeLoader`区段的`Timeout`参数。接下来就是调用`UiInitialize()`进行UI的主初始化阶段了。这里也将代码在下面给出。
 
 ```
 BOOLEAN UiInitialize(BOOLEAN ShowGui)
@@ -1734,7 +1735,7 @@ BOOLEAN UiInitialize(BOOLEAN ShowGui)
 }
 ```
 
-函数比较简单，调用INI读取函数从INI文件中读取UI配置信息。根据上面INI的内容可以看到Display区段配置了MinimalUI字段且值为Yes，可知UiVtbl指向了MiniTuiVtbl全局数组，在初始化最后调用了UiFadeInBackdrop()函数，它进一步调用了MiniTuiDrawBackdrop()，这个函数比较简单，填充一个黑色背景并将填充的内存复制到屏幕显示上去，实现了背景重绘！
+函数比较简单，调用INI读取函数从INI文件中读取UI配置信息。根据上面INI的内容可以看到 Display 区段配置了MinimalUI字段且值为Yes，可知UiVtbl指向了MiniTuiVtbl全局数组，在初始化最后调用了`UiFadeInBackdrop()`函数，它进一步调用了`MiniTuiDrawBackdrop()`，这个函数比较简单，填充一个黑色背景并将填充的内存复制到屏幕显示上去，实现了背景重绘！
 
 ```
 const UIVTBL MiniTuiVtbl =
@@ -1772,15 +1773,15 @@ VOID MiniTuiDrawBackdrop(VOID)
 }
 ```
 
-初始化完界面，就该显示可以启动的操作系统了，InitOperatingSystemList()函数从INI中读取可启动操作系统的列表，并将信息存储在OperatingSystemList列表中。如果可启动操作系统数为0，或没有生成系统列表，说明发生了错误则直接跳转到重启标签，将系统重启。
+初始化完界面，就该显示可以启动的操作系统了，`InitOperatingSystemList()`函数从INI中读取可启动操作系统的列表，并将信息存储在OperatingSystemList列表中。如果可启动操作系统数为0，或没有生成系统列表，说明发生了错误则直接跳转到重启标签，将系统重启。
 
-GetDefaultOperatingSystem()获取默认启动的系统，如果超时时则直接启动默认的系统，与获取系统列表逻辑类似都是解析已经获取的INI文件内容保存的列表。UiShowMessageBoxesInSection()则是从FreeLoader区段找MessageBox关键字设置，这里系统中没有设置这个字段。
+`GetDefaultOperatingSystem()`获取默认启动的系统，如果超时时则直接启动默认的系统，与获取系统列表逻辑类似都是解析已经获取的INI文件内容保存的列表。`UiShowMessageBoxesInSection()`则是从`FreeLoader`区段找`MessageBox`关键字设置，这里系统中没有设置这个字段。
 
-接着进入死循环，调用UiDrawBackdrop()函数重绘界面显示，调用UiDisplayMenu()显示系统启动菜单，以供用户选择。这里涉及到了界面绘制的操作，这个话题比较大，不在此处过多介绍。选定了启动系统后，则调用LoadOperatingSystem()继续启动操作系统。
+接着进入死循环，调用`UiDrawBackdrop()`函数重绘界面显示，调用`UiDisplayMenu()`显示系统启动菜单，以供用户选择。这里涉及到了界面绘制的操作，这个话题比较大，不在此处过多介绍。选定了启动系统后，则调用`LoadOperatingSystem()`继续启动操作系统。
 
 #### 启动选择操作系统 ####
 
-上一节介绍到调用LoadOperatingSystem()函数，即选定了要启动的操作系统，将信息传递给该函数继续启动系统。传递的参数即前面解析INI文件获取的系统的信息，这里以ReactOS_Debug为例，其INI中的启动信息如下所示，相比于ReactOS区段，它只是多了Options字段。
+上一节介绍到调用`LoadOperatingSystem()`函数，即选定了要启动的操作系统，将信息传递给该函数继续启动系统。传递的参数即前面解析INI文件获取的系统的信息，这里以ReactOS_Debug为例，其INI中的启动信息如下所示，相比于ReactOS区段，它只是多了Options字段。
 
 ```
 [ReactOS_Debug]
@@ -1789,7 +1790,7 @@ SystemPath=multi(0)disk(0)rdisk(0)partition(1)\ReactOS
 Options=/DEBUG /DEBUGPORT=COM2 /BAUDRATE=115200 /SOS
 ```
 
-LoadOperatingSystem()函数首先根据参数中的结构体指针获得要加载的系统在INI中配置区段的名称，即SystemPartition字段存储字符串。读取到要启动系统的BootType配置信息，然后根据BootType信息调用OSLoadingMethods数组中对应的加载系统的方法，这里要启动ReactOS_Debug对应的BootType为Windows2003，即调用LoadAndBootWindows()函数来加载系统。
+`LoadOperatingSystem()`函数首先根据参数中的结构体指针获得要加载的系统在INI中配置区段的名称，即`SystemPartition`字段存储字符串。读取到要启动系统的BootType配置信息，然后根据BootType信息调用`OSLoadingMethods`数组中对应的加载系统的方法，这里要启动`ReactOS_Debug`对应的BootType为Windows2003，即调用`LoadAndBootWindows()`函数来加载系统。
 
 ```
 typedef struct tagOperatingSystemItem
@@ -1875,7 +1876,7 @@ VOID LoadOperatingSystem(IN OperatingSystemItem* OperatingSystem)
 }
 ```
 
-上述函数寻找加载操作系统的方法，根据前面的解析，它应该调用LoadAndBootWindows()方法。从源码中，首先读取INI中的引导路径，分配`LOADER_PARAMETER_BLOCK`结构体并初始化，调用WinLdrInitSystemHive()初始化注册表读取，最后调用LoadAndBootWindowsCommon()继续加载。
+上述函数寻找加载操作系统的方法，根据前面的解析，它应该调用`LoadAndBootWindows()`方法。从源码中，首先读取INI中的引导路径，分配`LOADER_PARAMETER_BLOCK`结构体并初始化，调用`WinLdrInitSystemHive()`初始化注册表读取，最后调用`LoadAndBootWindowsCommon()`继续加载。
 
 从`LOADER_PARAMETER_BLOCK`结构体的内容可知，它包含了系统启动初期所需使用的大部分内容，具体的内容不再详细介绍，可以参考下面`LOADER_PARAMETER_BLOCK`结构体定义源码。
 ```
@@ -2023,7 +2024,8 @@ typedef struct _LOADER_PARAMETER_BLOCK
     FIRMWARE_INFORMATION_LOADER_BLOCK FirmwareInformation;
 } LOADER_PARAMETER_BLOCK, *PLOADER_PARAMETER_BLOCK;
 ```
-函数WinLdrInitSystemHive()用来加载系统注册表，并且初始化读取参数，方便以后读取。WinLdrLoadSystemHive()就是简单将文件加载到内存中，前面介绍过文件读取操作，不再过多分析。关于注册表的初始化和读取操作后面专门辟出一篇文章分析一下。
+
+函数`WinLdrInitSystemHive()`用来加载系统注册表，并且初始化读取参数，方便以后读取。`WinLdrLoadSystemHive()`就是简单将文件加载到内存中，前面介绍过文件读取操作，不再过多分析。关于注册表的初始化和读取操作后面专门辟出一篇文章分析一下。
 
 ```
 BOOLEAN WinLdrInitSystemHive(IN OUT PLOADER_PARAMETER_BLOCK LoaderBlock,
@@ -2214,10 +2216,10 @@ LoadAndBootWindowsCommon(
     /* Debugging... */
     //DumpMemoryAllocMap();
     WinLdrSetupMachineDependent(LoaderBlock); // 机器特定初始化
-    WinLdrSetupMemoryLayout(LoaderBlock); // 映射内存页，创建内存描述符
+    WinLdrSetupMemoryLayout(LoaderBlock);     // 映射内存页，创建内存描述符
     WinLdrSetProcessorContext(); // 设置处理器上下文结构体内容
 
-    // 保存LoaderPagesSpanned最后的值
+    // 保存 LoaderPagesSpanned 最后的值
     LoaderBlock->Extension->LoaderPagesSpanned = LoaderPagesSpanned;
     TRACE("Hello from paged mode, KiSystemStartup %p, LoaderBlockVA %p!\n",
           KiSystemStartup, LoaderBlockVA);
@@ -2225,7 +2227,7 @@ LoadAndBootWindowsCommon(
     // 清空KI_USER_SHARED_DATA页面
     memset((PVOID)KI_USER_SHARED_DATA, 0, MM_PAGE_SIZE);
 
-    WinLdrpDumpMemoryDescriptors(LoaderBlockVA);
+    WinLdrpDumpMemoryDescriptors(LoaderBlockVA); // 显示调试信息
     WinLdrpDumpBootDriver(LoaderBlockVA);
 #ifndef _M_AMD64
     WinLdrpDumpArcDisks(LoaderBlockVA);
@@ -2234,6 +2236,878 @@ LoadAndBootWindowsCommon(
     (*KiSystemStartup)(LoaderBlockVA); // 传递控制到 内核初始化函数
 }
 ```
+
+`MachHwDetect()`函数用于检测硬件，并在内存的注册表中建立硬件信息。调用`LoadWindowsCore()`函数加载内核文件，HAL以及调试用的`KDCOM.dll`模块。调用`WinLdrLoadBootDrivers()`函数加载引导驱动
+
+```
+static
+BOOLEAN
+LoadWindowsCore(IN USHORT OperatingSystemVersion,
+                IN OUT PLOADER_PARAMETER_BLOCK LoaderBlock,
+                IN PCSTR BootOptions,
+                IN PCSTR BootPath,
+                IN OUT PLDR_DATA_TABLE_ENTRY* KernelDTE)
+{
+    BOOLEAN Success;
+    PCSTR Options;
+    CHAR DirPath[MAX_PATH];
+    CHAR KernelFileName[MAX_PATH];
+    CHAR HalFileName[MAX_PATH];
+    CHAR KdTransportDllName[MAX_PATH];
+    PLDR_DATA_TABLE_ENTRY HalDTE, KdComDTE = NULL;
+
+    if (!KernelDTE) return FALSE;
+
+    /* Initialize SystemRoot\System32 path */
+    strcpy(DirPath, BootPath);
+    strcat(DirPath, "system32\\");
+
+    //
+    // TODO: Parse also the separate INI values "Kernel=" and "Hal="
+    //
+
+    /* 设置内核和HAL的默认文件名 */
+    strcpy(KernelFileName, "ntoskrnl.exe");
+    strcpy(HalFileName   , "hal.dll");
+
+    /* 查找引导选项中的 /KERNEL= 或 /HAL= 选项 */
+    Options = BootOptions;
+    while (Options)
+    {
+        /* Skip possible initial whitespace */
+        Options += strspn(Options, " \t");
+
+        /* Check whether a new commutator starts and it is either KERNEL or HAL */
+        if (*Options != '/' || (++Options,
+            !(_strnicmp(Options, "KERNEL=", 7) == 0 ||
+              _strnicmp(Options, "HAL=",    4) == 0)) )
+        {
+            /* Search for another whitespace */
+            Options = strpbrk(Options, " \t");
+            continue;
+        }
+        else
+        {
+            size_t i = strcspn(Options, " \t"); /* Skip whitespace */
+            if (i == 0)
+            {
+                /* Use the default values */
+                break;
+            }
+
+            /* We have found either KERNEL or HAL commutator */
+            if (_strnicmp(Options, "KERNEL=", 7) == 0)
+            {
+                Options += 7; i -= 7;
+                strncpy(KernelFileName, Options, i);
+                KernelFileName[i] = ANSI_NULL;
+                _strupr(KernelFileName);
+            }
+            else if (_strnicmp(Options, "HAL=", 4) == 0)
+            {
+                Options += 4; i -= 4;
+                strncpy(HalFileName, Options, i);
+                HalFileName[i] = ANSI_NULL;
+                _strupr(HalFileName);
+            }
+        }
+    }
+
+    TRACE("Kernel file = '%s' ; HAL file = '%s'\n", KernelFileName, HalFileName);
+
+    /* 加载内核 */
+    LoadModule(LoaderBlock, DirPath, KernelFileName, "ntoskrnl.exe", LoaderSystemCode, KernelDTE, 30);
+
+    /* 加载HAL */
+    LoadModule(LoaderBlock, DirPath, HalFileName, "hal.dll", LoaderHalCode, &HalDTE, 45);
+
+    /* 加载内核调试器传输DLL */
+    if (OperatingSystemVersion > _WIN32_WINNT_WIN2K)
+    {
+        /*
+         * This loop replaces a dumb call to strstr(..., "DEBUGPORT=").
+         * Indeed I want it to be case-insensitive to allow "debugport="
+         * or "DeBuGpOrT=" or... , and I don't want it to match malformed
+         * command-line options, such as:
+         *
+         * "...foo DEBUGPORT=xxx bar..."
+         * "...foo/DEBUGPORT=xxx bar..."
+         * "...foo/DEBUGPORT=bar..."
+         *
+         * i.e. the "DEBUGPORT=" switch must start with a slash and be separated
+         * from the rest by whitespace, unless it begins the command-line, e.g.:
+         *
+         * "/DEBUGPORT=COM1 foo...bar..."
+         * "...foo /DEBUGPORT=USB bar..."
+         * or:
+         * "...foo /DEBUGPORT= bar..."
+         * (in that case, we default the port to COM).
+         */
+        Options = BootOptions;
+        while (Options)
+        {
+            /* Skip possible initial whitespace */
+            Options += strspn(Options, " \t");
+
+            /* Check whether a new commutator starts and it is the DEBUGPORT one */
+            if (*Options != '/' || _strnicmp(++Options, "DEBUGPORT=", 10) != 0)
+            {
+                /* Search for another whitespace */
+                Options = strpbrk(Options, " \t");
+                continue;
+            }
+            else
+            {
+                /* We found the DEBUGPORT commutator. Move to the port name. */
+                Options += 10;
+                break;
+            }
+        }
+
+        if (Options)
+        {
+            /*
+             * We have found the DEBUGPORT commutator. Parse the port name.
+             * Format: /DEBUGPORT=COM1 or /DEBUGPORT=FILE:\Device\HarddiskX\PartitionY\debug.log or /DEBUGPORT=FOO
+             * If we only have /DEBUGPORT= (i.e. without any port name), defaults it to "COM".
+             */
+            strcpy(KdTransportDllName, "KD");
+            if (_strnicmp(Options, "COM", 3) == 0 && '0' <= Options[3] && Options[3] <= '9')
+            {
+                strncat(KdTransportDllName, Options, 3);
+            }
+            else
+            {
+                size_t i = strcspn(Options, " \t:"); /* Skip valid separators: whitespace or colon */
+                if (i == 0)
+                    strcat(KdTransportDllName, "COM");
+                else
+                    strncat(KdTransportDllName, Options, i);
+            }
+            strcat(KdTransportDllName, ".DLL");
+            _strupr(KdTransportDllName);
+
+            /*
+             * Load the transport DLL. Override the base DLL name of the
+             * loaded transport DLL to the default "KDCOM.DLL" name.
+             */
+            LoadModule(LoaderBlock, DirPath, KdTransportDllName, "kdcom.dll", LoaderSystemCode, &KdComDTE, 60);
+        }
+    }
+
+    /* 为内核，HAL和内核调试器的传输DLL加载所有引用的DLL */
+    Success  = WinLdrScanImportDescriptorTable(&LoaderBlock->LoadOrderListHead, DirPath, *KernelDTE);
+    Success &= WinLdrScanImportDescriptorTable(&LoaderBlock->LoadOrderListHead, DirPath, HalDTE);
+    if (KdComDTE)
+    {
+        Success &= WinLdrScanImportDescriptorTable(&LoaderBlock->LoadOrderListHead, DirPath, KdComDTE);
+    }
+
+    return Success;
+}
+```
+
+`LoadWindowsCore()`完成内核模块的加载，其中包括`Kernel`，HAL以及调试的`kdcom.dll`，使用`LoadModule()`加载模块，其中调用`WinLdrLoadImage()`进行模块加载，对于需要重定位的模块`WinLdrLoadImage()`函数会调用`LdrRelocateImageWithBias()`进行模块的重定位。`LoadModule()`最后要将新加载的模块放到加载模块列表`LoaderBlock->LoadOrderListHead`。
+
+对于加载完成模块要对其导入表进行处理，这个工作由`WinLdrScanImportDescriptorTable()`函数完成，对于没有加载模块要进行加载，加载的模块要完成导入表的对接，使其可以调用导入函数。
+
+加载完内核基础模块后，要加载引导驱动，这个驱动是之前读取注册表内容获得的引导时加载驱动的列表。`WinLdrLoadBootDrivers()`函数完成了引导驱动的加载，其加载过程类似于内核基础模块，不再粘贴详细代码。
+
+```
+BOOLEAN
+WinLdrLoadBootDrivers(PLOADER_PARAMETER_BLOCK LoaderBlock,
+                      LPCSTR BootPath)
+{
+    PLIST_ENTRY NextBd;
+    PBOOT_DRIVER_LIST_ENTRY BootDriver;
+    BOOLEAN Success;
+    BOOLEAN ret = TRUE;
+
+    // 遍历引导驱动列表
+    NextBd = LoaderBlock->BootDriverListHead.Flink;
+
+    while (NextBd != &LoaderBlock->BootDriverListHead)
+    {
+        BootDriver = CONTAINING_RECORD(NextBd, BOOT_DRIVER_LIST_ENTRY, Link);
+
+        TRACE("BootDriver %wZ DTE %08X RegPath: %wZ\n", &BootDriver->FilePath,
+            BootDriver->LdrEntry, &BootDriver->RegistryPath);
+
+        // Paths are relative (FIXME: Are they always relative?)
+
+        // 加载驱动
+        Success = WinLdrLoadDeviceDriver(&LoaderBlock->LoadOrderListHead,
+                                         BootPath,
+                                         &BootDriver->FilePath,
+                                         0,
+                                         &BootDriver->LdrEntry);
+
+        if (Success)
+        {
+            // Convert the RegistryPath and DTE addresses to VA since we are not going to use it anymore
+            BootDriver->RegistryPath.Buffer = PaToVa(BootDriver->RegistryPath.Buffer);
+            BootDriver->FilePath.Buffer = PaToVa(BootDriver->FilePath.Buffer);
+            BootDriver->LdrEntry = PaToVa(BootDriver->LdrEntry);
+        }
+        else
+        {
+            // Loading failed - cry loudly
+            ERR("Can't load boot driver '%wZ'!\n", &BootDriver->FilePath);
+            UiMessageBox("Can't load boot driver '%wZ'!", &BootDriver->FilePath);
+            ret = FALSE;
+
+            // Remove it from the list and try to continue
+            RemoveEntryList(NextBd);
+        }
+
+        NextBd = BootDriver->Link.Flink;
+    }
+
+    return ret;
+}
+```
+
+加载完引导加载驱动的模块后，调用`WinLdrInitializePhase1()`函数进行第一阶段初始化。这个函数主要完成了对引导参数和系统跟路径，引导路径等量的规范。
+
+```
+// Init "phase 1"
+VOID
+WinLdrInitializePhase1(PLOADER_PARAMETER_BLOCK LoaderBlock,
+                       LPCSTR Options,
+                       LPCSTR SystemRoot,
+                       LPCSTR BootPath,
+                       USHORT VersionToBoot)
+{
+    /* Examples of correct options and paths */
+    //CHAR    Options[] = "/DEBUGPORT=COM1 /BAUDRATE=115200";
+    //CHAR    Options[] = "/NODEBUG";
+    //CHAR    SystemRoot[] = "\\WINNT\\";
+    //CHAR    ArcBoot[] = "multi(0)disk(0)rdisk(0)partition(1)";
+
+    LPSTR LoadOptions, NewLoadOptions;
+    CHAR  HalPath[] = "\\";
+    CHAR  ArcBoot[256];
+    CHAR  MiscFiles[256];
+    ULONG i;
+    ULONG_PTR PathSeparator;
+    PLOADER_PARAMETER_EXTENSION Extension;
+
+    /* Construct SystemRoot and ArcBoot from SystemPath */
+    PathSeparator = strstr(BootPath, "\\") - BootPath;
+    strncpy(ArcBoot, BootPath, PathSeparator);
+    ArcBoot[PathSeparator] = ANSI_NULL;
+
+    TRACE("ArcBoot: %s\n", ArcBoot);
+    TRACE("SystemRoot: %s\n", SystemRoot);
+    TRACE("Options: %s\n", Options);
+
+    /* Fill Arc BootDevice */
+    LoaderBlock->ArcBootDeviceName = WinLdrSystemBlock->ArcBootDeviceName;
+    strncpy(LoaderBlock->ArcBootDeviceName, ArcBoot, MAX_PATH);
+    LoaderBlock->ArcBootDeviceName = PaToVa(LoaderBlock->ArcBootDeviceName);
+
+    /* Fill Arc HalDevice, it matches ArcBoot path */
+    LoaderBlock->ArcHalDeviceName = WinLdrSystemBlock->ArcBootDeviceName;
+    LoaderBlock->ArcHalDeviceName = PaToVa(LoaderBlock->ArcHalDeviceName);
+
+    /* Fill SystemRoot */
+    LoaderBlock->NtBootPathName = WinLdrSystemBlock->NtBootPathName;
+    strncpy(LoaderBlock->NtBootPathName, SystemRoot, MAX_PATH);
+    LoaderBlock->NtBootPathName = PaToVa(LoaderBlock->NtBootPathName);
+
+    /* Fill NtHalPathName */
+    LoaderBlock->NtHalPathName = WinLdrSystemBlock->NtHalPathName;
+    strncpy(LoaderBlock->NtHalPathName, HalPath, MAX_PATH);
+    LoaderBlock->NtHalPathName = PaToVa(LoaderBlock->NtHalPathName);
+
+    /* Fill LoadOptions and strip the '/' commutator symbol in front of each option */
+    NewLoadOptions = LoadOptions = LoaderBlock->LoadOptions = WinLdrSystemBlock->LoadOptions;
+    strncpy(LoaderBlock->LoadOptions, Options, MAX_OPTIONS_LENGTH);
+
+    do
+    {
+        while (*LoadOptions == '/')
+            ++LoadOptions;
+
+        *NewLoadOptions++ = *LoadOptions;
+    } while (*LoadOptions++);
+
+    LoaderBlock->LoadOptions = PaToVa(LoaderBlock->LoadOptions);
+
+    /* Arc devices */
+    LoaderBlock->ArcDiskInformation = &WinLdrSystemBlock->ArcDiskInformation;
+    InitializeListHead(&LoaderBlock->ArcDiskInformation->DiskSignatureListHead);
+
+    /* Convert ARC disk information from freeldr to a correct format */
+    for (i = 0; i < reactos_disk_count; i++)
+    {
+        PARC_DISK_SIGNATURE_EX ArcDiskSig;
+
+        /* Allocate the ARC structure */
+        ArcDiskSig = FrLdrHeapAlloc(sizeof(ARC_DISK_SIGNATURE_EX), 'giSD');
+
+        /* Copy the data over */
+        RtlCopyMemory(ArcDiskSig, &reactos_arc_disk_info[i], sizeof(ARC_DISK_SIGNATURE_EX));
+
+        /* Set the ARC Name pointer */
+        ArcDiskSig->DiskSignature.ArcName = PaToVa(ArcDiskSig->ArcName);
+
+        /* Insert into the list */
+        InsertTailList(&LoaderBlock->ArcDiskInformation->DiskSignatureListHead,
+                       &ArcDiskSig->DiskSignature.ListEntry);
+    }
+
+    /* Convert all list's to Virtual address */
+
+    /* Convert the ArcDisks list to virtual address */
+    List_PaToVa(&LoaderBlock->ArcDiskInformation->DiskSignatureListHead);
+    LoaderBlock->ArcDiskInformation = PaToVa(LoaderBlock->ArcDiskInformation);
+
+    /* Convert configuration entries to VA */
+    ConvertConfigToVA(LoaderBlock->ConfigurationRoot);
+    LoaderBlock->ConfigurationRoot = PaToVa(LoaderBlock->ConfigurationRoot);
+
+    /* Convert all DTE into virtual addresses */
+    List_PaToVa(&LoaderBlock->LoadOrderListHead);
+
+    /* This one will be converted right before switching to virtual paging mode */
+    //List_PaToVa(&LoaderBlock->MemoryDescriptorListHead);
+
+    /* Convert list of boot drivers */
+    List_PaToVa(&LoaderBlock->BootDriverListHead);
+
+    /* Initialize Extension now */
+    Extension = &WinLdrSystemBlock->Extension;
+    Extension->Size = sizeof(LOADER_PARAMETER_EXTENSION);
+    Extension->MajorVersion = (VersionToBoot & 0xFF00) >> 8;
+    Extension->MinorVersion = VersionToBoot & 0xFF;
+    Extension->Profile.Status = 2;
+
+    /* Check if FreeLdr detected a ACPI table */
+    if (AcpiPresent)
+    {
+        /* Set the pointer to something for compatibility */
+        Extension->AcpiTable = (PVOID)1;
+        // FIXME: Extension->AcpiTableSize;
+    }
+
+#ifdef _M_IX86
+    /* Set headless block pointer */
+    if (WinLdrTerminalConnected)
+    {
+        Extension->HeadlessLoaderBlock = &WinLdrSystemBlock->HeadlessLoaderBlock;
+        RtlCopyMemory(Extension->HeadlessLoaderBlock,
+                      &LoaderRedirectionInformation,
+                      sizeof(HEADLESS_LOADER_BLOCK));
+        Extension->HeadlessLoaderBlock = PaToVa(Extension->HeadlessLoaderBlock);
+    }
+#endif
+    /* Load drivers database */
+    strcpy(MiscFiles, BootPath);
+    strcat(MiscFiles, "AppPatch\\drvmain.sdb");
+    Extension->DrvDBImage = PaToVa(WinLdrLoadModule(MiscFiles,
+                                                    &Extension->DrvDBSize,
+                                                    LoaderRegistryData));
+
+    /* Convert extension and setup block pointers */
+    LoaderBlock->Extension = PaToVa(Extension);
+
+    if (LoaderBlock->SetupLdrBlock)
+        LoaderBlock->SetupLdrBlock = PaToVa(LoaderBlock->SetupLdrBlock);
+
+    TRACE("WinLdrInitializePhase1() completed\n");
+}
+```
+
+后面调用`WinLdrSetupMachineDependent()`函数对依赖于机器的设置进行初始化，这里以`i386`为例进行介绍。主要是完成如下几个事情：
+
+* 为PCR结构分配内存（两页）
+* 为TSS结构分配内存
+* 为新的GDT IDT分配内存空间
+* 开始进行映射页面之前，创建一块内存用于存放 PDE和PTEs
+* 映射PCR, KI_USER_SHARED_DATA 和 Apic
+
+将PDE的自映射到了虚拟地址`0xC0000000`，其实就是PDE的`0x300`索引下表值项；将Hal地址映射到`0xFFC00000-0xFFFFFFFF`，占用的PDE索引为`1023`。该函数分配的物理内存布局为`PDE + HAL + KernelPTEs`。
+
+`WinLdrMapSpecialPages()`函数将应分配的PCR区块的第二个页分配给了`KI_USER_SHARED_DATA=0xFFDF0000`，第一个页分配给真正的PCB使用，其映射的虚拟地址为`KIP0PCRADDRESS=0xFFDFF000`
+
+```
+void WinLdrSetupMachineDependent(PLOADER_PARAMETER_BLOCK LoaderBlock)
+{
+    ULONG TssSize;
+    //ULONG TssPages;
+    ULONG_PTR Pcr = 0;
+    ULONG_PTR Tss = 0;
+    ULONG BlockSize, NumPages;
+
+    LoaderBlock->u.I386.CommonDataArea = NULL; // Force No ABIOS support
+    LoaderBlock->u.I386.MachineType = MACHINE_TYPE_ISA;
+
+    /* 分配两页内存用于 PCR 处理器控制区 数据结构 */
+    Pcr = (ULONG_PTR)MmAllocateMemoryWithType(2 * MM_PAGE_SIZE, LoaderStartupPcrPage);
+    PcrBasePage = Pcr >> MM_PAGE_SHIFT;
+
+    if (Pcr == 0)
+    {
+        UiMessageBox("Can't allocate PCR.");
+        return;
+    }
+
+    /* 分配TSS 数据结构 */
+    TssSize = (sizeof(KTSS) + MM_PAGE_SIZE) & ~(MM_PAGE_SIZE - 1);
+    //TssPages = TssSize / MM_PAGE_SIZE;
+
+    Tss = (ULONG_PTR)MmAllocateMemoryWithType(TssSize, LoaderMemoryData);
+
+    TssBasePage = Tss >> MM_PAGE_SHIFT;
+
+    /* 为新的GDT IDT分配内存空间 */
+    BlockSize = NUM_GDT*sizeof(KGDTENTRY) + NUM_IDT*sizeof(KIDTENTRY);//FIXME: Use GDT/IDT limits here?
+    NumPages = (BlockSize + MM_PAGE_SIZE - 1) >> MM_PAGE_SHIFT;
+    GdtIdt = (PKGDTENTRY)MmAllocateMemoryWithType(NumPages * MM_PAGE_SIZE, LoaderMemoryData);
+
+    if (GdtIdt == NULL)
+    {
+        UiMessageBox("Can't allocate pages for GDT+IDT!");
+        return;
+    }
+
+    /* Zero newly prepared GDT+IDT */
+    RtlZeroMemory(GdtIdt, NumPages << MM_PAGE_SHIFT);
+
+    // 开始进行映射页面之前，创建一块内存用于存放 PDE和PTEs
+    if (MempAllocatePageTables() == FALSE)
+    {
+        BugCheck("MempAllocatePageTables failed!\n");
+    }
+
+    /* 映射PCR, KI_USER_SHARED_DATA 和 Apic */
+    WinLdrMapSpecialPages();
+
+    /* 设置一些特殊的数据指针 */
+    WinLdrSetupSpecialDataPointers();
+}
+```
+
+接下来调用`WinLdrSetupMemoryLayout()`函数进行页面映射和内存描述符的创建，源码如下。首先将加载器中初始化的物理内存查找表中的所有物理物理内存根据类型进行映射；然后将物理内存同类型的内存页面组合起来分成内存块，挂入加载器块变量中（LoaderBlock）。
+
+```
+BOOLEAN
+WinLdrSetupMemoryLayout(IN OUT PLOADER_PARAMETER_BLOCK LoaderBlock)
+{
+    PFN_NUMBER i, PagesCount, MemoryMapSizeInPages, NoEntries;
+    PFN_NUMBER LastPageIndex, MemoryMapStartPage;
+    PPAGE_LOOKUP_TABLE_ITEM MemoryMap;
+    ULONG LastPageType;
+    //PKTSS Tss;
+    //BOOLEAN Status;
+
+    /* 清理堆，即最初分配的临时堆和加载器默认堆 */
+    FrLdrHeapCleanupAll();
+
+    //
+    // 为Windows创建适当的内存映射其实是个技术活，因此下面给出一些建议
+    // 1) 首先不能将所有可用的内存页都映射进PDE，只需要映射必须的比如16Mb，24Mb，32Mb
+    //    因此占据4，6，8个PDE的条目来标识映射，与KSEG0_BASE映射相同数量。此外还需要
+    //    一个条目用于超级空间，以及一个条目用于HAL物理页映射
+    // 2) 内存描述符必须映射整个物理内存，高于16，24，32M的内存作为 固件临时使用
+    //
+    // 3) 总体的内存块不能超过30（为什么？？）
+    //
+
+    //
+    // 在 MmInitMachineDependent 函数中，内核的清零的PDE位于如下虚拟地址
+    // 0xC0300000 - 0xC03007FC
+    // 然后是非分页内存池的最好位置 C0300F70, EndPde C0300FF8, 页面数C13, 下一个物理页 3AD
+    //
+
+    // 为内存分配描述符分配内存
+    Mad = MmAllocateMemoryWithType(sizeof(MEMORY_ALLOCATION_DESCRIPTOR) * MAX_MAD_COUNT,
+                                   LoaderMemoryData);
+
+    // 为每一个描述符设置一个条目
+    MemoryMap = MmGetMemoryMap(&NoEntries);
+    if (MemoryMap == NULL)
+    {
+        UiMessageBox("Can not retrieve the current memory map.");
+        return FALSE;
+    }
+
+    // Calculate parameters of the memory map
+    MemoryMapStartPage = (ULONG_PTR)MemoryMap >> MM_PAGE_SHIFT;
+    MemoryMapSizeInPages = (NoEntries * sizeof(PAGE_LOOKUP_TABLE_ITEM) + MM_PAGE_SIZE - 1) / MM_PAGE_SIZE;
+
+    TRACE("Got memory map with %d entries\n", NoEntries);
+
+
+    /* 在创建映射之前，需要映射页到内核模式 */
+    LastPageIndex = 1;
+    LastPageType = MemoryMap[1].PageAllocated;
+    for (i = 2; i < NoEntries; i++)//>
+    {
+        if ((MemoryMap[i].PageAllocated != LastPageType) ||
+            (i == NoEntries - 1))
+        {
+            MempSetupPagingForRegion(LastPageIndex, i - LastPageIndex, LastPageType);
+            LastPageIndex = i;
+            LastPageType = MemoryMap[i].PageAllocated;
+        }
+    }
+
+    // Construct a good memory map from what we've got,
+    // but mark entries which the memory allocation bitmap takes
+    // as free entries (this is done in order to have the ability
+    // to place mem alloc bitmap outside lower 16Mb zone)
+    PagesCount = 1;
+    LastPageIndex = 0;
+    LastPageType = MemoryMap[0].PageAllocated;
+    for (i = 1; i < NoEntries; i++) //>
+    {
+        // Check if its memory map itself
+        if (i >= MemoryMapStartPage &&
+            i < (MemoryMapStartPage+MemoryMapSizeInPages)) 
+        {
+            // Exclude it if current page belongs to the memory map
+            MemoryMap[i].PageAllocated = LoaderFree;
+        }
+
+        // Process entry
+        if (MemoryMap[i].PageAllocated == LastPageType &&
+            (i != NoEntries-1) )
+        {
+            PagesCount++;
+        }
+        else
+        {
+            // Add the resulting region
+            MempAddMemoryBlock(LoaderBlock, LastPageIndex, PagesCount, LastPageType);
+
+            // Reset our counter vars
+            LastPageIndex = i;
+            LastPageType = MemoryMap[i].PageAllocated;
+            PagesCount = 1;
+        }
+    }
+
+    /* Now we need to add high descriptors from the bios memory map */
+    for (i = 0; i < BiosMemoryMapEntryCount; i++)
+    {
+        /* Check if its higher than the lookup table */
+        if (BiosMemoryMap->BasePage > MmHighestPhysicalPage)
+        {
+            /* Copy this descriptor */
+            MempAddMemoryBlock(LoaderBlock,
+                               BiosMemoryMap->BasePage,
+                               BiosMemoryMap->PageCount,
+                               BiosMemoryMap->MemoryType);
+        }
+    }
+
+    TRACE("MadCount: %d\n", MadCount);
+
+    WinLdrpDumpMemoryDescriptors(LoaderBlock); //FIXME: Delete!
+
+    // Map our loader image, so we can continue running
+    /*Status = MempSetupPaging(OsLoaderBase >> MM_PAGE_SHIFT, OsLoaderSize >> MM_PAGE_SHIFT);
+    if (!Status)
+    {
+        UiMessageBox("Error during MempSetupPaging.");
+        return;
+    }*/
+
+    // Fill the memory descriptor list and
+    //PrepareMemoryDescriptorList();
+    TRACE("Memory Descriptor List prepared, printing PDE\n");
+    List_PaToVa(&LoaderBlock->MemoryDescriptorListHead);
+
+#if DBG
+    MempDump();
+#endif
+
+    return TRUE;
+}
+```
+
+函数`WinLdrSetProcessorContext()`是做最后的处理器上下文设置。其实就是开启分页，首先准备CR3寄存器内容，然后修改CR0中的PE位。前面分配了GDT和IDT内存，这里初始化GDT，将老的IDT表中数据复制到新的IDT中，然后启用新的GDT和IDT表。跳转纠正`CS`寄存器，正式开启分页执行。最后要将其他的段寄存器进行更新，否则可能会造成访问错误。
+
+> FS 寄存器被设置为PCR所在的GDT段，在内核中就很容易访问到PCR中的内容了。
+
+```
+
+VOID
+WinLdrSetProcessorContext(void)
+{
+    GDTIDT GdtDesc, IdtDesc, OldIdt;
+    PKGDTENTRY    pGdt;
+    PKIDTENTRY    pIdt;
+    USHORT Ldt = 0;
+    ULONG Pcr;
+    ULONG Tss;
+    //ULONG i;
+
+    Pcr = KIP0PCRADDRESS;
+    Tss = KSEG0_BASE | (TssBasePage << MM_PAGE_SHIFT);
+
+    TRACE("GDtIdt %p, Pcr %p, Tss 0x%08X\n",
+        GdtIdt, Pcr, Tss);
+
+    // Enable paging
+    //BS->ExitBootServices(ImageHandle,MapKey);
+
+    // 关中断
+    _disable();
+
+    // Re-initialize EFLAGS 重新初始化 EFLAGS
+    __writeeflags(0);
+
+    // Set the PDBR 设置 PDBR，即CR3寄存器
+    __writecr3((ULONG_PTR)PDE);
+
+    // Enable paging by modifying CR0 修改CR0，开启分页
+    __writecr0(__readcr0() | CR0_PG);
+
+    // Kernel expects the PCR to be zero-filled on startup
+    // FIXME: Why zero it here when we can zero it right after allocation?
+    RtlZeroMemory((PVOID)Pcr, MM_PAGE_SIZE); //FIXME: Why zero only 1 page when we allocate 2?
+
+    // Get old values of GDT and IDT 获取老的 GDT 和 IDT 表
+    Ke386GetGlobalDescriptorTable(&GdtDesc);
+    __sidt(&IdtDesc);
+
+    // Save old IDT
+    OldIdt.Base = IdtDesc.Base;
+    OldIdt.Limit = IdtDesc.Limit;
+
+    // Prepare new IDT+GDT
+    GdtDesc.Base  = KSEG0_BASE | (ULONG_PTR)GdtIdt;
+    GdtDesc.Limit = NUM_GDT * sizeof(KGDTENTRY) - 1;
+    IdtDesc.Base  = (ULONG)((PUCHAR)GdtDesc.Base + GdtDesc.Limit + 1);
+    IdtDesc.Limit = NUM_IDT * sizeof(KIDTENTRY) - 1;
+
+    // ========================
+    // Fill all descriptors now
+    // ========================
+
+    pGdt = (PKGDTENTRY)GdtDesc.Base;
+    pIdt = (PKIDTENTRY)IdtDesc.Base;
+
+    //
+    // Code selector (0x8)
+    // Flat 4Gb
+    //
+    pGdt[1].LimitLow                = 0xFFFF;
+    pGdt[1].BaseLow                    = 0;
+    pGdt[1].HighWord.Bytes.BaseMid    = 0;
+    pGdt[1].HighWord.Bytes.Flags1    = 0x9A;
+    pGdt[1].HighWord.Bytes.Flags2    = 0xCF;
+    pGdt[1].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Data selector (0x10)
+    // Flat 4Gb
+    //
+    pGdt[2].LimitLow                = 0xFFFF;
+    pGdt[2].BaseLow                    = 0;
+    pGdt[2].HighWord.Bytes.BaseMid    = 0;
+    pGdt[2].HighWord.Bytes.Flags1    = 0x92;
+    pGdt[2].HighWord.Bytes.Flags2    = 0xCF;
+    pGdt[2].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Selector (0x18)
+    // Flat 2Gb
+    //
+    pGdt[3].LimitLow                = 0xFFFF;
+    pGdt[3].BaseLow                    = 0;
+    pGdt[3].HighWord.Bytes.BaseMid    = 0;
+    pGdt[3].HighWord.Bytes.Flags1    = 0xFA;
+    pGdt[3].HighWord.Bytes.Flags2    = 0xCF;
+    pGdt[3].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Selector (0x20)
+    // Flat 2Gb
+    //
+    pGdt[4].LimitLow                = 0xFFFF;
+    pGdt[4].BaseLow                    = 0;
+    pGdt[4].HighWord.Bytes.BaseMid    = 0;
+    pGdt[4].HighWord.Bytes.Flags1    = 0xF2;
+    pGdt[4].HighWord.Bytes.Flags2    = 0xCF;
+    pGdt[4].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // TSS Selector (0x28)
+    //
+    pGdt[5].LimitLow                = 0x78-1; //FIXME: Check this
+    pGdt[5].BaseLow = (USHORT)(Tss & 0xffff);
+    pGdt[5].HighWord.Bytes.BaseMid = (UCHAR)((Tss >> 16) & 0xff);
+    pGdt[5].HighWord.Bytes.Flags1    = 0x89;
+    pGdt[5].HighWord.Bytes.Flags2    = 0x00;
+    pGdt[5].HighWord.Bytes.BaseHi  = (UCHAR)((Tss >> 24) & 0xff);
+
+    //
+    // PCR Selector (0x30)
+    //
+    pGdt[6].LimitLow                = 0x01;
+    pGdt[6].BaseLow  = (USHORT)(Pcr & 0xffff);
+    pGdt[6].HighWord.Bytes.BaseMid = (UCHAR)((Pcr >> 16) & 0xff);
+    pGdt[6].HighWord.Bytes.Flags1    = 0x92;
+    pGdt[6].HighWord.Bytes.Flags2    = 0xC0;
+    pGdt[6].HighWord.Bytes.BaseHi  = (UCHAR)((Pcr >> 24) & 0xff);
+
+    //
+    // Selector (0x38)
+    //
+    pGdt[7].LimitLow                = 0xFFFF;
+    pGdt[7].BaseLow                    = 0;
+    pGdt[7].HighWord.Bytes.BaseMid    = 0;
+    pGdt[7].HighWord.Bytes.Flags1    = 0xF3;
+    pGdt[7].HighWord.Bytes.Flags2    = 0x40;
+    pGdt[7].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Some BIOS stuff (0x40)
+    //
+    pGdt[8].LimitLow                = 0xFFFF;
+    pGdt[8].BaseLow                    = 0x400;
+    pGdt[8].HighWord.Bytes.BaseMid    = 0;
+    pGdt[8].HighWord.Bytes.Flags1    = 0xF2;
+    pGdt[8].HighWord.Bytes.Flags2    = 0x0;
+    pGdt[8].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Selector (0x48)
+    //
+    pGdt[9].LimitLow                = 0;
+    pGdt[9].BaseLow                    = 0;
+    pGdt[9].HighWord.Bytes.BaseMid    = 0;
+    pGdt[9].HighWord.Bytes.Flags1    = 0;
+    pGdt[9].HighWord.Bytes.Flags2    = 0;
+    pGdt[9].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Selector (0x50)
+    //
+    pGdt[10].LimitLow                = 0xFFFF; //FIXME: Not correct!
+    pGdt[10].BaseLow                = 0;
+    pGdt[10].HighWord.Bytes.BaseMid    = 0x2;
+    pGdt[10].HighWord.Bytes.Flags1    = 0x89;
+    pGdt[10].HighWord.Bytes.Flags2    = 0;
+    pGdt[10].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Selector (0x58)
+    //
+    pGdt[11].LimitLow                = 0xFFFF;
+    pGdt[11].BaseLow                = 0;
+    pGdt[11].HighWord.Bytes.BaseMid    = 0x2;
+    pGdt[11].HighWord.Bytes.Flags1    = 0x9A;
+    pGdt[11].HighWord.Bytes.Flags2    = 0;
+    pGdt[11].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Selector (0x60)
+    //
+    pGdt[12].LimitLow                = 0xFFFF;
+    pGdt[12].BaseLow                = 0; //FIXME: Maybe not correct, but noone cares
+    pGdt[12].HighWord.Bytes.BaseMid    = 0x2;
+    pGdt[12].HighWord.Bytes.Flags1    = 0x92;
+    pGdt[12].HighWord.Bytes.Flags2    = 0;
+    pGdt[12].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Video buffer Selector (0x68)
+    //
+    pGdt[13].LimitLow                = 0x3FFF;
+    pGdt[13].BaseLow                = 0x8000;
+    pGdt[13].HighWord.Bytes.BaseMid    = 0x0B;
+    pGdt[13].HighWord.Bytes.Flags1    = 0x92;
+    pGdt[13].HighWord.Bytes.Flags2    = 0;
+    pGdt[13].HighWord.Bytes.BaseHi    = 0;
+
+    //
+    // Points to GDT (0x70)
+    //
+    pGdt[14].LimitLow                = NUM_GDT*sizeof(KGDTENTRY) - 1;
+    pGdt[14].BaseLow                = 0x7000;
+    pGdt[14].HighWord.Bytes.BaseMid    = 0xFF;
+    pGdt[14].HighWord.Bytes.Flags1    = 0x92;
+    pGdt[14].HighWord.Bytes.Flags2    = 0;
+    pGdt[14].HighWord.Bytes.BaseHi    = 0xFF;
+
+    //
+    // Some unused descriptors should go here
+    //
+
+    // 拷贝老的 IDT表
+    RtlCopyMemory(pIdt, (PVOID)OldIdt.Base, OldIdt.Limit + 1);
+
+    // Mask interrupts
+    //asm("cli\n"); // they are already masked before enabling paged mode
+
+    // Load GDT+IDT 重新加载 GDT和IDT
+    Ke386SetGlobalDescriptorTable(&GdtDesc);
+    __lidt(&IdtDesc);
+
+    // 跳转到适当的 CS 选择子，清除预取指令队列
+#if defined(__GNUC__)
+    asm("ljmp    $0x08, $1f\n"
+        "1:\n");
+#elif defined(_MSC_VER)
+    /* We can't express the above in MASM so we use this far return instead */
+    __asm
+    {
+        push 8
+        push offset resume
+        retf
+        resume:
+    };
+#else
+#error
+#endif
+
+    // Set SS selector
+    Ke386SetSs(0x10); // DataSelector=0x10
+
+    // Set DS and ES selectors
+    Ke386SetDs(0x10);
+    Ke386SetEs(0x10); // this is vital for rep stosd
+
+    // LDT = not used ever, thus set to 0
+    Ke386SetLocalDescriptorTable(Ldt);
+
+    // Load TSR
+    Ke386SetTr(KGDT_TSS);
+
+    // Clear GS
+    Ke386SetGs(0);
+
+    // Set FS to PCR
+    Ke386SetFs(0x30);
+
+        // Real end of the function, just for information
+        /* do not uncomment!
+        pop edi;
+        pop esi;
+        pop ebx;
+        mov esp, ebp;
+        pop ebp;
+        ret
+        */
+}
+```
+
+最后跳转到内核模块`ntoskrnl.exe`模块的指定地址（KiSystemStartup）继续执行，该函数传参为`LoaderBlock`，其中包含了内存信息等在加载器中初始化内容。
+
+至此，总结一下加载器内容：
+
+* 从汇编中设置GDT/IDT等开启保护模式
+* 进入C语言代码，收集系统初始化信息
+* 加载内核模块，HAL模块，调试模块kdcom.dll以及引导加载驱动
+* 设置系统分页配置，开启系统分页
+* 进入内核模块继续执行
+
+> 前期的汇编代码无论使用Bochs或GDB都可以很好调试，但是进入C语言之后，虽然仍然可以使用汇编调试，但是难度较大，就没有再逐步调试。想要寻找一下加载模块 FreeLdr.sys 的源码调试，无奈多次尝试无果，只能暂时搁置。
 
 **未总结内容**
 
