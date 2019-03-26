@@ -1204,10 +1204,19 @@ f70c9dec  00000000
 ** 问题 **
 
 1. 进入内核时，sysenter指令所在函数`KiFastSystemCall()`是什么时候放入内核和用户共享内存部分的？
+	```
+    #define KI_USER_SHARED_DATA     0xffdf0000
+	#define SharedUserData          ((KUSER_SHARED_DATA * CONST)KI_USER_SHARED_DATA)
+    ```
+    在ReactOS中，KiFastSystemCall() 函数指针所在的内存块是固定地址，在进程管理器的阶段1初始化中，会获取这个函数的地址，并且将它设置到内核和用户空间共享的这块内存中。
+
 2. 快速调用用的MSR寄存器是什么时候设置的？
+	函数`KiLoadFastSyscallMachineSpecificRegisters`中会设置几个MSR寄存器的值。
+    SYSENTER_CS_MSR 设置为 KGDT_R0_CODE，SYSENTER_ESP_MSR为 DpcStack，SYSENTER_EIP_MSR为KiFastCallEntry。
 3. IDT表是什么时机的构建的，它的内容是如何构建的？如何从Windbg查看这些内容？
 	定义在trap.S汇编文件中。
 4. 系统调用表如何初始化，以及`Win32.sys`系统调用表如何初始化？当然包括在系统调用中如何将普通线程切换为Win32线程?
+	
 5. 为何调试情况下以SYSENTER进入内核，而返回时却是使用IRETD的方式？
 
 ** 参考文档 **
