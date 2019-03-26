@@ -22,7 +22,7 @@ categories:
 再有就是Windows内核的简单描述，关于宏内核和Windows内核的关系，这里直接给出毛老师书中的Windows系统结构图，如图 1。
 
 <div align="center">
-![图1 Windows系统结构图](/img/2017-06-20-ReactOS-SystemCall-Windows-Architecture.jpg)
+![图1 Windows系统结构图](2017-06-20-ReactOS-SystemCall-Windows-Architecture.jpg)
 </div>
 
 <!-- more -->
@@ -48,7 +48,7 @@ categories:
 
 自陷指令就包括了系统调用的int 2e，断点int3等。
 
-Intel X86 系列CPU还提供了一种“调用门”机制，被认为是自陷机制的改进，几乎无人使用。但是在Windows系统中还是有两个“异常”是用调用门实现的，他们就是双重错误处理和机器检查。后来为了实现快速的系统调用，Intel的CPU又提供了一对指令sysenter/sysexit，称为快速系统调用机制。早先时候的Windows是通过自陷指令“int 0x2e”进入内核实现系统调用的，后面就改为快速调用方式实现，ReactOS也不例外。
+Intel X86 系列CPU还提供了一种“调用门”机制，被认为是自陷机制的改进，几乎无人使用。但是在Windows系统中还是有两个“异常”是用调用门实现的，他们就是双重错误处理和机器检查。后来为了实现快速的系统调用，Intel的CPU又提供了一对指令`sysenter/sysexit`，称为快速系统调用机制。早先时候的Windows是通过自陷指令“int 0x2e”进入内核实现系统调用的，后面就改为快速调用方式实现，ReactOS也不例外。
 
 下面简单记录一下Windbg调试ReadFile()函数调用的过程。这里用的调试方式可能不对（一直探索中），如果哪位有更好的方法欢迎邮件告知，感激不尽。具体怎么设置调试环境这里就不多罗嗦了，不明白的朋友可以参照ReactOS的编译，安装与调试的日志。
 
@@ -74,7 +74,7 @@ bp /p b22be7f8 nt!KiSystemCallTrapReturn
 bp /p b22be7f8 ntdll!KiFastSystemCallRet
 ```
 
-> 这里给一个技巧，就是可以启动Notepad.exe进程（记事本）之后，从菜单中选择打开，直接弹出打开窗口，选中要打开的DebugTest.txt文件，方便后面点打开按钮。
+> 这里有一个技巧，就是可以启动Notepad.exe进程（记事本）之后，从菜单中选择打开，直接弹出打开窗口，选中要打开的DebugTest.txt文件，方便后面点打开按钮。
 > 一旦启动了内核调试，下了断点（尤其ReadFile这种大众函数），会被无数次断下来。防止这种现象出现，可以按照上述小技巧进行（虽然给出了完整调用顺序的断点们，但是看到后面就会发现，后面几个断点无法连续调试）。
 
 断下来之后，查看一下当前打开的文件是否我们指定的文件呢，用于后面单步调试时用。从下面的调试内容看，打开的是`\Documents and Settings\Administrator\Desktop\DebugTest.txt`文件，即预期要打开的文件。
@@ -120,7 +120,7 @@ Object: b22a2de8  Type: (b2683710) File
         Directory Object: 00000000  Name: \Documents and Settings\Administrator\Desktop\DebugTest.txt {Partition1}
 ```
 
-继续往下走，ReadFile()中的代码这里就不说了，如果想看一下它的内部逻辑，可以参考源代码（\reactos\dll\win32\kernel32\client\file\rw.c）。对于读取txt文件这种调用ReadFile()中，它最终会调用到ntdll!NtReadFile()函数，该函数的汇编如下（该函数没有对应的源代码，是编译中动态生成的，不要妄图找到它的源码），可以看到该函数与毛德操老师分析的0.3.3的汇编有一些不一样，eax寄存器中放的系统调用号是0xBF，即191，下面调用的SharedUserData!SystemCallStub，它的值在后面也给出了，其实就是ntdll!KiFastSystemCall()函数。
+继续往下走，ReadFile()中的代码这里就不说了，如果想看一下它的内部逻辑，可以参考源代码（`\reactos\dll\win32\kernel32\client\file\rw.c`）。对于读取txt文件这种调用`ReadFile()`中，它最终会调用到`ntdll!NtReadFile()`函数，该函数的汇编如下（该函数没有对应的源代码，是编译中动态生成的，不要妄图找到它的源码），可以看到该函数与毛德操老师分析的0.3.3的汇编有一些不一样，`eax`寄存器中放的系统调用号是0xBF，即191，下面调用的`SharedUserData!SystemCallStub`，它的值在后面也给出了，其实就是`ntdll!KiFastSystemCall()`函数。
 
 ```
 ntdll!NtReadFile:
@@ -212,7 +212,8 @@ MACRO(KiEnterTrap, Flags)		// 传进来的参数表示 快速系统调用，不�
         /* Get a stack pointer 获取TSS中栈指针，KTSS结构体如后文所示 4h，即成员Esp0 */
         mov esp, [ecx + KTSS_ESP0]
 
-        /* Set up a fake hardware trap frame 设置一个虚构的硬件自陷帧，上述并未进行栈操作，依旧保持Ring3进入时栈的情况。 */
+        /* Set up a fake hardware trap frame */
+        /* 设置一个虚构的硬件自陷帧，上面切换栈之前使用的是DPC的栈，但上述并未进行栈操作，Ring3依旧保持进入时栈的情况。*/
         push KGDT_R3_DATA or RPL_MASK
         push edx
         pushfd
@@ -566,7 +567,7 @@ kd> dt nt!_KTSS
    +0x208c IntDirectionMap  : [32] UChar
 ```
 
-从上述的内容可知，KiEnterTrap 在系统调用中就是构建了自陷帧，这个自陷帧的整体结构是什么样的呢？下面给出它的内容。其实代码中能看到的构建动作就是从0x64和0x78两个地方为界的两个不同块。对于INT 2Eh自陷指令，0x68～0x78这些系统栈内容是由指令自动入栈的；对于快速系统调用SYSENTER，它则不会负责这些内容，那就是上面看到的汇编代码中故意构建的自陷帧。至于V86模式的那个内容，目前不在考虑范围内。下面给出了本次调试中，各个字段对应的值，如下代码块所示。将其中的Edx字段做个验证，证明是从上面ReadFile函数中调用下来的，如下代码块中内容所示。
+从上述的内容可知，`KiEnterTrap` 在系统调用中就是构建了自陷帧，这个自陷帧的整体结构是什么样的呢？下面给出它的内容。其实代码中能看到的构建动作就是从0x64和0x78两个地方为界的两个不同块。对于`INT 2Eh`自陷指令，`0x68～0x78`这些系统栈内容是由指令自动入栈的；对于快速系统调用SYSENTER，它则不会负责这些内容，那就是上面看到的汇编代码中故意构建的自陷帧。至于V86模式的那个内容，目前不在考虑范围内。下面给出了本次调试中，各个字段对应的值，如下代码块所示。将其中的Edx字段做个验证，证明是从上面ReadFile函数中调用下来的，如下代码块中内容所示。
 
 ```
 kd> dt nt!_KTRAP_FRAME 0xf70c1d64
@@ -589,7 +590,7 @@ kd> dt nt!_KTRAP_FRAME 0xf70c1d64
    +0x040 Ecx              : 0x8069d000
    +0x044 Eax              : 0xbf
    +0x048 PreviousPreviousMode : 0
-   +0x04c ExceptionList    : (null) 
+   +0x04c ExceptionList    : (null)
    +0x050 SegFs            : 0x3b
    +0x054 Edi              : 0
    +0x058 Esi              : 0
@@ -638,11 +639,7 @@ nt!KiSystemServiceHandler:
 下面贴出ReactOS中该函数的源码，简单分析一下该函数。
 
 ```
-DECLSPEC_NORETURN
-VOID
-FASTCALL
-KiSystemServiceHandler(IN PKTRAP_FRAME TrapFrame,
-                       IN PVOID Arguments)
+VOID FASTCALL KiSystemServiceHandler(IN PKTRAP_FRAME TrapFrame, IN PVOID Arguments)
 {
     PKTHREAD Thread;
     PKSERVICE_TABLE_DESCRIPTOR DescriptorTable;
@@ -802,7 +799,7 @@ KiSystemCallTrampoline(IN PVOID Handler,
 
 ```
 
-其中的ServiceTable指向的是一个`nt!_KSERVICE_TABLE_DESCRIPTOR`结构的表，大小为2，第一项有内容，第二项的Limit为0，其实就是没有内容，如下所示。这个表如何查呢？其实就是根据函数调用号做索引值，取Base数组的元素，Number数组的元素，两个分别为对应的系统调用函数以及该函数的参数个数。如下面给出的函数`nt!NtAcceptConnectPort`，它是表的第一个元素，对应参数内存用量为 0x18字节，即6个参数，在下面给出了这个函数的原型。注意到上面会提到Win32Sys的系统调用，它存在于一个独立的`nt!_KSERVICE_TABLE_DESCRIPTOR`结构中，用`KeServiceDescriptorTableShadow`全局变量单独指向，而普通的系统调用位于`KeServiceDescriptorTable`全局变量指向的上述结构中。一个线程初始化完成后，它的系统调用表的字段`ServiceTable`（KTHREAD结构中）的值等于全局变量`KeServiceDescriptorTable`的值。
+其中的`ServiceTable`指向的是一个`nt!_KSERVICE_TABLE_DESCRIPTOR`结构的表，大小为2，第一项有内容，第二项的Limit为0，其实就是没有内容，如下所示。这个表如何查呢？其实就是根据函数调用号做索引值，取Base数组的元素，Number数组的元素，两个分别为对应的系统调用函数以及该函数的参数个数。如下面给出的函数`nt!NtAcceptConnectPort`，它是表的第一个元素，对应参数内存用量为 0x18字节，即6个参数，在下面给出了这个函数的原型。注意到上面会提到Win32Sys的系统调用，它存在于一个独立的`nt!_KSERVICE_TABLE_DESCRIPTOR`结构中，用`KeServiceDescriptorTableShadow`全局变量单独指向，而普通的系统调用位于`KeServiceDescriptorTable`全局变量指向的上述结构中。一个线程初始化完成后，它的系统调用表的字段`ServiceTable`（KTHREAD结构中）的值等于全局变量`KeServiceDescriptorTable`的值。
 
 ```
 kd> dt nt!KSERVICE_TABLE_DESCRIPTOR 0x805b0aa0
@@ -817,9 +814,7 @@ nt!_KSERVICE_TABLE_DESCRIPTOR
    +0x004 Count            : 0xf76da868  -> 0xf7674c90
    +0x008 Limit            : 0
    +0x00c Number           : 0x000002aa  "--- memory read error at address 0x000002aa ---"
-```
 
-```
 kd> db 0x80574108 L1
 80574108  18                                               .
 kd> dds 0x80573c68 L1
@@ -827,7 +822,6 @@ kd> dds 0x80573c68 L1
 ```
 
 ```
-NTSYSCALLAPI
 NTSTATUS
 NTAPI
 NtAcceptConnectPort(
@@ -842,7 +836,7 @@ NtAcceptConnectPort(
 
 在校验完系统调用号和参数的有效性后，就该到调用对应的函数了。这里是通过调用 `KiSystemCallTrampoline` 完成的，它里面的汇编也比较简单，根据参数个数，将参数从用户栈上复制到系统栈上，然后调用对应的函数即可，不再多说。具体的`nt!ReadFile`的逻辑不在此处学习了，后面可以单独阅读。
 
-调用完函数，接下来就是返回了。先恢复线程的陷阱帧，因为当前这个陷阱帧马上就会被丢弃掉，要将先前的陷阱帧赋值到线程的KTHREAD结构体的TrapFrame字段中。然后调用 `KiServiceExit`函数。该函数有两个参数，一个是陷阱帧指针，另外一个是返回值Status。函数的具体操作见函数中的注释。
+调用完函数，接下来就是返回了。先恢复线程的陷阱帧，因为当前这个陷阱帧马上就会被丢弃掉，要将先前的陷阱帧赋值到线程的`KTHREAD`结构体的`TrapFrame`字段中。然后调用 `KiServiceExit`函数。该函数有两个参数，一个是陷阱帧指针，另外一个是返回值Status。函数的具体操作见函数中的注释。
 
 > 这里做个说明，在前面的调试内容还是比较容易搞出来。但是当退出系统调用时，断点断到KiServiceExit函数还是比较容易的，要从它往下调试时，发现不是出现双重错误，就是其他的一些异常，总是无法调试。所以，下面的内容没有真实调试出来的数据了，只做一下简单的代码分析。
 > 这块不太确定是否由于调试器的事件影响了系统的退出的一些调用，造成了出现双重错误。如果有人知道，或有更好的调试方法，欢迎您写邮件告知，感激不尽。后面如果了解了原因，或是有了更好的方法可以继续追踪调试，再补一下这块的调试数据。
@@ -850,11 +844,7 @@ NtAcceptConnectPort(
 其中有一个地方要注意一下，就是函数`KiCheckForApcDelivery`的调用，它用作APC分发，这个函数后面想专门总结一下APC的机制，再详细解析吧！
 
 ```
-DECLSPEC_NORETURN
-VOID
-FASTCALL
-KiServiceExit(IN PKTRAP_FRAME TrapFrame,
-              IN NTSTATUS Status)
+VOID  FASTCALL KiServiceExit(IN PKTRAP_FRAME TrapFrame, IN NTSTATUS Status)
 {
     ASSERT((TrapFrame->EFlags & EFLAGS_V86_MASK) == 0);
     ASSERT(!KiIsFrameEdited(TrapFrame));
@@ -919,7 +909,7 @@ KiCommonExit(IN PKTRAP_FRAME TrapFrame, BOOLEAN SkipPreviousMode)
 }
 ```
 
-根据是否是单步执行，最终退出时，有两种退出方式。一种是单步的话调用`KiSystemCallTrapReturn`，而非单步的话调用`KiFastCallExitHandler`，它其实是一个全局变量，它指向的内容为`KiSystemCallSysExitReturn`。如下给出了两个函数的定义，他们又是来自同一个宏定义，只是编译标记不同。先看一下这个公共的宏定义。两个函数的参数都是指向自陷帧的指针。
+根据是否是单步执行，最终退出时，有两种退出方式。一种是单步调试则调用`KiSystemCallTrapReturn`，而非单步调试则调用`KiFastCallExitHandler`，它其实是一个全局变量，它指向的内容为`KiSystemCallSysExitReturn`。如下给出了两个函数的定义，他们又是来自同一个宏定义，只是编译标记不同。先看一下这个公共的宏定义。两个函数的参数都是指向自陷帧的指针。
 
 ```
 KiTrapExitStub KiSystemCallSysExitReturn, (KI_RESTORE_EAX OR KI_RESTORE_FS OR KI_RESTORE_EFLAGS OR KI_EXIT_SYSCALL)
@@ -1110,7 +1100,7 @@ nt!KiSystemCallTrapReturn:
 80403f1a cf              iretd								// 返回
 ```
 
-其中`sysexit`指令完成的工作包括将寄存器EDX内容置入EIP中，将ECX内容置入ESP寄存器，自动根据SYSENTER_CS_MSR修改CS和SS段寄存器的内容。由于前面设置的返回地址为`KiFastSystemCallRet`，所以调用sysexit后，则进入到函数KiFastSystemCallRet中继续执行。下面随意给出一个函数返回时的sysexit执行后的寄存器情况，如下。可知ECX与ESP值相同，EDX与EIP值相同。
+其中`sysexit`指令完成的工作包括将寄存器EDX内容置入EIP中，将ECX内容置入ESP寄存器，自动根据`SYSENTER_CS_MSR`修改CS和SS段寄存器的内容。由于前面设置的返回地址为`KiFastSystemCallRet`，所以调用sysexit后，则进入到函数KiFastSystemCallRet中继续执行。下面随意给出一个函数返回时的sysexit执行后的寄存器情况，如下。可知ECX与ESP值相同，EDX与EIP值相同。
 
 ```
 kd> r
@@ -1121,7 +1111,7 @@ ntdll!KiFastSystemCallRet:
 001b:7c92c8de c3              ret
 ```
 
-对于`nt!KiSystemCallTrapReturn`函数来说，它也是做了恢复寄存器的操作，但是最后通过iretd返回，该指令其实是int 2eh指令的逆指令，即从栈中弹出EIP，CS，EFLAGS，ESP，SS等寄存器，然后跳转到EIP指定地址继续执行。其实在调试的情况下，sysenter形式进入的内核，但是其实返回时在`KiServiceExit`函数中调用的是本函数，至于原因还不太清楚。调用`nt!KiSystemCallTrapReturn`的条件是TrapFrame中的EFlags字段有单步标识，则通过iretd的形式返回，即调用到本函数中了。如下是NtReadFile调用返回时的情况，返回后的地址为NtReadFile+0xC的指令，寄存器内容可以看出，EAX作为返回值为0（表示成功）。查看内核中系统栈的内容，可以发现EIP，ESP，SS，CS，EFLAGS等值可以对上。
+对于`nt!KiSystemCallTrapReturn`函数来说，它也是做了恢复寄存器的操作，但是最后通过iretd返回，该指令其实是int 2eh指令的逆指令，即从栈中弹出EIP，CS，EFLAGS，ESP，SS等寄存器，然后跳转到EIP指定地址继续执行。其实在调试的情况下，sysenter形式进入的内核，但是其实返回时在`KiServiceExit`函数中调用的是本函数。调用`nt!KiSystemCallTrapReturn`的条件是TrapFrame中的EFlags字段有单步标识，则通过iretd的形式返回，即调用到本函数中了。如下是`NtReadFile`调用返回时的情况，返回后的地址为`NtReadFile+0xC`的指令，寄存器内容可以看出，EAX作为返回值为0（表示成功）。查看内核中系统栈的内容，可以发现EIP，ESP，SS，CS，EFLAGS等值可以对上。
 
 ```
 kd> kL
@@ -1213,11 +1203,11 @@ f70c9dec  00000000
 -------------------
 ** 问题 **
 
-1. 进入内核时，sysenter指令所在函数KiFastSystemCall()是什么时候放入内核和用户共享内存部分的？
+1. 进入内核时，sysenter指令所在函数`KiFastSystemCall()`是什么时候放入内核和用户共享内存部分的？
 2. 快速调用用的MSR寄存器是什么时候设置的？
 3. IDT表是什么时机的构建的，它的内容是如何构建的？如何从Windbg查看这些内容？
 	定义在trap.S汇编文件中。
-4. 系统调用表如何初始化，以及Win32Sys系统调用表如何初始化？当然包括在系统调用中如何将普通线程切换为Win32线程?
+4. 系统调用表如何初始化，以及`Win32.sys`系统调用表如何初始化？当然包括在系统调用中如何将普通线程切换为Win32线程?
 5. 为何调试情况下以SYSENTER进入内核，而返回时却是使用IRETD的方式？
 
 ** 参考文档 **
